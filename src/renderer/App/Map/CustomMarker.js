@@ -5,16 +5,16 @@ import { MapContainer, Marker, Popup, TileLayer, useMap } from "react-leaflet";
 
 
 
-const CustomMarker = ({ position, children, color }) => {
+const CustomMarker = ({ position, children, color, iconUrl }) => {
   const map = useMap();
-
+  const asdfsafs =  require("src/renderer/App/Icons/circle_red_marker.png")
   var iconColored = new L.Icon({
-    iconUrl: `https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-${color}.png`,
+    iconUrl: asdfsafs,
     shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/0.7.7/images/marker-shadow.png',
-    iconSize: [25, 41],
+    iconSize: [20, 20],
     iconAnchor: [12, 41],
     popupAnchor: [1, -34],
-    shadowSize: [41, 41]
+    shadowSize: [20, 20]
   });
 
   //Spotify
@@ -23,12 +23,52 @@ const CustomMarker = ({ position, children, color }) => {
     iconSize: [35, 35],
     iconAnchor: [15, 10],
   });
-
+  const customDivIcon = L.divIcon({
+    className: 'custom-div-icon',
+    html: `<div style="
+      background-color: ${"red"};
+      width: 35px;
+      height: 35px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: white;
+      font-size: 10px;
+      font-weight: bold;
+      border: 2px solid cyan;
+      overflow: hidden;
+    ">${"Akif"}</div>`,
+    iconSize: [24, 24],
+    iconAnchor: [12, 12], // Center the icon
+  });
+  
   return (
-    <Marker position={position} icon={iconColored}>
+    <Marker position={position} icon={customDivIcon}>
       {children}
     </Marker>
   );
 };
 
 export default CustomMarker;
+
+// const MarkerWithBadge = props => {
+//   const initMarker = ref => {
+//     if (ref) {
+//       const popup = L.popup().setContent(props.children);
+//       ref.leafletElement
+//         .addTo(ref.contextValue.map)
+//         .bindPopup(popup, {
+//           className: "badge",
+//           closeOnClick: false,
+//           autoClose: false
+//         })
+//         .openPopup()
+//         // prevent badge from dissapearing onClick
+//         .off("click");
+//     }
+//   };
+//   return <Marker ref={initMarker} {...props} />;
+// };
+
+// export default MarkerWithBadge

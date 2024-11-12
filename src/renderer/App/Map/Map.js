@@ -1,21 +1,25 @@
 import React, { useEffect, useState, useRef } from 'react';
-import { MapContainer, Popup, TileLayer, Marker } from "react-leaflet";
 import CustomMarker from "./CustomMarker";
-// import locations from '../Data/data.json';
-import { DatePicker, Button, Layout, Row, Col, Tooltip, Slider, Drawer   } from 'antd';
-import { 
-  PlayCircleOutlined, 
-  PauseCircleOutlined, 
-  StopOutlined, 
-  StepForwardOutlined, 
-  StepBackwardOutlined, 
-  SoundOutlined,
-  CaretRightOutlined
+import { DatePicker, Button, Layout, Row, Col, Slider, Drawer, FloatButton } from 'antd';
+import {
+  PlayCircleOutlined,
+  PauseCircleOutlined,
+  StepForwardOutlined,
+  StepBackwardOutlined,
+  SettingOutlined,
+  AppstoreAddOutlined,
+  ControlOutlined,
 } from '@ant-design/icons';
-import locationData from '../Data/data_iphone7.json';
-import locationData2 from '../Data/data_iphonex.json';
+import { MapContainer, TileLayer, Popup, LayersControl } from 'react-leaflet';
+import circleRedMarker from '../Icons/circle_red_marker.png';
+import squareRedMarker from '../Icons/square_red_marker.png';
+import starRedMarker from '../Icons/star_red_marker.png';
+import triangleRedMarker from '../Icons/triangle_red_marker.png';
+import FileSelectionModal from '../Modals/FileSelectionModal';
+import DeviceSelectionModal from '../Modals/DeviceSelectionModal';
 
 const { Header } = Layout;
+const { ipcRenderer } = window.require('electron'); // Import ipcRenderer for database fetching
 
 export default function Map() {
   const [filteredLocations, setFilteredLocations] = useState([]);
@@ -24,102 +28,125 @@ export default function Map() {
   const [endDateTime, setEndDateTime] = useState(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const animationRef = useRef(null);
-  const [playing, setPlaying] = useState(false);
-  const [volume, setVolume] = useState(50);
-  const [index, setIndex] = useState(1);
-  const [locations, setLocations] = useState([])
-  const [selectedLocation, setSelectedLocation] = useState(null); // Store selected location data
-  const [isDrawerVisible, setIsDrawerVisible] = useState(false); // State for drawer visibility
+  const [index, setIndex] = useState(0);
+  const [locations, setLocations] = useState([]);
+  const [selectedLocation, setSelectedLocation] = useState(null);
+  const [isDrawerVisible, setIsDrawerVisible] = useState(false);
+  const [isFileModalVisible, setIsFileModalVisible] = useState(false);
 
-  // Dynamically load JSON files from the public/data folder
+  const getRedMarkerIcon = (iconShape) => {
+    switch (iconShape) {
+      case 'circle':
+        return circleRedMarker;
+      case 'square':
+        return squareRedMarker;
+      case 'star':
+        return starRedMarker;
+      case 'triangle':
+        return triangleRedMarker;
+      default:
+        return circleRedMarker;
+    }
+  };
+
+  const handleFileModalOpen = () => {
+    setIsFileModalVisible(true);
+  };
+
+  const handleFileModalClose = () => {
+    setIsFileModalVisible(false);
+  };
+
+  const handleFileConfirm = (file) => {
+    console.log("File added:", file);
+  };
+
+  const onClose = () => {
+    setIsDrawerVisible(false);
+  };
+
   useEffect(() => {
-    const loadJsonFiles = async () => {
+    const fetchDevicesAndLocations = async () => {
       try {
-        const data = [locationData, locationData2]
-
-        // Merge the locations from both files and assign colors
-        const mergedLocations = [
-          ...data[0].map(location => ({ ...location, color: 'red' })), // First file: red
-          ...data[1].map(location => ({ ...location, color: 'green' })) // Second file: green
-        ];
-        setLocations(mergedLocations); // Set the merged locations
+        const devicesResponse = await ipcRenderer.invoke('get-devices');
+        if (!devicesResponse.success) {
+          console.error('Failed to fetch devices:', devicesResponse.error);
+          return;
+        }
+        
+        const devices = devicesResponse.data;
+        const allLocations = [];
+        
+        for (const device of devices) {
+          const deviceLocationsResponse = await ipcRenderer.invoke('get-device-locations', device.id);
+          if (deviceLocationsResponse.success) {
+            const deviceLocations = deviceLocationsResponse.data.map(location => ({
+              ...location,
+              iconUrl: getRedMarkerIcon(device.icon),
+              timestamp: new Date(location.timestamp)
+            }));
+            allLocations.push(...deviceLocations);
+          } else {
+            console.error(`Failed to fetch locations for device ${device.id}:`, deviceLocationsResponse.error);
+          }
+        }
+        setLocations(allLocations);
       } catch (error) {
-        console.error('Error loading JSON files:', error);
+        console.error('Error fetching devices and locations:', error);
       }
     };
 
-    loadJsonFiles();
-    
+    fetchDevicesAndLocations();
   }, []);
 
-
-
-
-
   const togglePlayPause = () => {
-    console.log(playing)
-    if (!playing) {
-      startAnimation()
-    } else if (playing) {
-      stopAnimation()
+    if (isPlaying) {
+      clearInterval(animationRef.current);
+    } else {
+      startAnimation();
     }
-
-    setPlaying(!playing);
-
-  };
-
-  const stopVideo = () => {
-    setPlaying(false);
-  };
-
-
-
-  const rewind = () => {
-    setIndex( index - 10); 
+    setIsPlaying(!isPlaying);
   };
 
   const forward = () => {
-    setIndex( index + 10); 
+    const newIndex = Math.min(index + 10, filteredLocations.length - 1);
+    setIndex(newIndex);
+    updateVisibleLocations(newIndex);
+  };
+
+  const backward = () => {
+    const newIndex = Math.max(index - 10, 0);
+    setIndex(newIndex);
+    updateVisibleLocations(newIndex);
   };
 
   useEffect(() => {
     if (startDateTime && endDateTime) {
       const filtered = locations
-        .filter((location) => {
-          const locationTime = new Date(location['Timestamp Date/Time - UTC+00:00 (M/d/yyyy)']);
-          return locationTime >= startDateTime && locationTime <= endDateTime;
-        })
-        .sort((a, b) => {
-          const timeA = new Date(a['Timestamp Date/Time - UTC+00:00 (M/d/yyyy)']).getTime();
-          const timeB = new Date(b['Timestamp Date/Time - UTC+00:00 (M/d/yyyy)']).getTime();
-          return timeA - timeB; // Ascending order (oldest first)
-        });
-        
+        .filter((location) => Date.parse(location.timestamp) >= Date.parse(startDateTime) && Date.parse(location.timestamp) <= Date.parse(endDateTime))
+        .sort((a, b) => a.timestamp - b.timestamp);
+      console.log(filtered)
       setFilteredLocations(filtered);
     } else {
       setFilteredLocations([]);
     }
-  }, [startDateTime, endDateTime]);
+  }, [startDateTime, endDateTime, locations]);
 
   const startAnimation = () => {
-    setVisibleLocations([]);
-    let index = 0;
-    setIsPlaying(true);
+    let currentIndex = index;
     animationRef.current = setInterval(() => {
-      if (index < filteredLocations.length) {
-        setVisibleLocations((prev) => [...prev, filteredLocations[index]]);
-        setIndex(index++);
+      if (currentIndex < filteredLocations.length) {
+        updateVisibleLocations(currentIndex);
+        setIndex(currentIndex++);
       } else {
-        stopAnimation();
+        clearInterval(animationRef.current);
       }
-    }, 500); // Show a new point every 500ms
+    }, 500);
   };
 
-  const stopAnimation = () => {
-    setIsPlaying(false);
-    if (animationRef.current) {
-      clearInterval(animationRef.current);
-    }
+  const updateVisibleLocations = (newIndex) => {
+    const recentLocations = filteredLocations.slice(0, newIndex + 1);
+    setVisibleLocations(recentLocations);
   };
 
   const closeDrawer = () => {
@@ -132,104 +159,80 @@ export default function Map() {
     setIsDrawerVisible(true);
   };
 
-
-  const currentTimestamp = filteredLocations[index - 1]?.['Timestamp Date/Time - UTC+00:00 (M/d/yyyy)'] || "N/A";
+  const currentTimestamp = filteredLocations[index]?.timestamp.toLocaleString() || "N/A";
 
   return (
     <div>
       <Layout>
-        <Header style={{ height: '64px', width:'100%', backgroundColor: '#993955',position: 'relative', zIndex:1200}}>
+        <Header style={{ height: '64px', width: '100%', backgroundColor: '#993955', position: 'relative' }}>
           <Row gutter={[16, 16]} align="middle">
             <Col>
-              <DatePicker
-                showTime
-                value={startDateTime}
-                onChange={(date) => setStartDateTime(date)}
-                placeholder="Start DateTime"
-              />
+              <DatePicker showTime value={startDateTime} onChange={(date) => setStartDateTime(date)} placeholder="Start DateTime" />
             </Col>
             <Col>
-              <DatePicker
-                showTime
-                value={endDateTime}
-                onChange={(date) => setEndDateTime(date)}
-                placeholder="End DateTime"
-              />
+              <DatePicker showTime value={endDateTime} onChange={(date) => setEndDateTime(date)} placeholder="End DateTime" />
             </Col>
             <Col>
               <div style={{ display: 'flex', alignItems: 'center' }}>
-                <Button onClick={rewind} icon={<StepBackwardOutlined />} />
-                <Button onClick={togglePlayPause} icon={playing ? <PauseCircleOutlined /> : <PlayCircleOutlined />} />
+                <Button onClick={backward} icon={<StepBackwardOutlined />} />
+                <Button onClick={togglePlayPause} icon={isPlaying ? <PauseCircleOutlined /> : <PlayCircleOutlined />} />
                 <Button onClick={forward} icon={<StepForwardOutlined />} />
-                
-                <div style={{ marginLeft: '20px', display: 'flex', alignItems: 'center' }}>
-                  <Slider 
-                    style={{ width: 100 }} 
-                    value={index}  
-                    handleColor='#993955'
-                    max={filteredLocations.length}
-                  />
-                  <span style={{ marginLeft: '10px' }}>
-                    {index}/{filteredLocations.length || 1}
-                  </span>
-                </div>
+                <Slider style={{ width: 100, marginLeft: 20 }} value={index} max={filteredLocations.length - 1} />
+                <span style={{ marginLeft: '10px' }}>{index}/{filteredLocations.length || 1}</span>
               </div>
             </Col>
           </Row>
         </Header>
         <Layout>
-        <MapContainer center={[40.4544416860082, -86.9043019950876]} zoom={13} style={{ height: '100vh', width: '100%' }}>
-          <TileLayer
-            url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-          />
-          {visibleLocations.map((location, index) => (
-            <CustomMarker key={index} position={[location.Latitude, location.Longitude]} color={location.color}>
-              <Popup>
-                <div>
-                  <p>{location.Comments || 'No additional information available'}</p>
-                  {location['Speed (m/s)'] && <p>Speed: {location['Speed (m/s)']} m/s</p>}
-                  <p>Timestamp: {location['Timestamp Date/Time - UTC+00:00 (M/d/yyyy)']}</p>
-                  <Button type="link" onClick={() => openDrawer(location)}>More Info</Button> {/* More Info button */}
-                </div>
-              </Popup>
-            </CustomMarker>
-          ))}
-        </MapContainer>
-          {/* Date/Time Overlay */}
+          <MapContainer center={[40.454, -86.904]} zoom={13} style={{ height: 'calc(100vh - 64px)', width:'100vw' }}>
+            <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
+            <LayersControl position="topright">
+              <LayersControl.Overlay checked name="GPS Locations">
+                {visibleLocations.map((location, i) => (
+                  <CustomMarker 
+                    key={i} 
+                    position={[location.latitude, location.longitude]} 
+                    iconUrl={"../Icons/circle_red_marker.png"}
+                  >
+                    <Popup>
+                      <div>
+                        <p>Speed: {location.speed || 'N/A'} m/s</p>
+                        <p>Timestamp: {location.timestamp.toLocaleString()}</p>
+                        <Button type="link" onClick={() => openDrawer(location)}>More Info</Button>
+                      </div>
+                    </Popup>
+                  </CustomMarker>
+                ))}
+              </LayersControl.Overlay>
+            </LayersControl>
+          </MapContainer>
           <div style={{
-            position: 'absolute',
-            top: '10px',
-            right: '10px',
-            backgroundColor: 'rgba(255, 255, 255, 0.8)', // semi-transparent background
-            padding: '10px',
-            borderRadius: '5px',
-            zIndex: 1250, // Make sure it stays on top of the map
-            fontSize: '14px',
-            color: '#333'
+            position: 'absolute', top: '10px', right: '10px', backgroundColor: 'rgba(255, 255, 255, 0.8)',
+            padding: '10px', borderRadius: '5px', fontSize: '14px', color: '#333'
           }}>
             <strong>Current Time: </strong>{currentTimestamp}
           </div>
-          {/* Drawer for More Info */}
-        <Drawer
-          title="More Information"
-          placement="right"
-          onClose={closeDrawer}
-          visible={isDrawerVisible}
-          width={400}
-          style={{paddingTop:'15%'}}
-        >
-          {selectedLocation ? (
-            <div>
-              <p><strong>Latitude:</strong> {selectedLocation.Latitude}</p>
-              <p><strong>Longitude:</strong> {selectedLocation.Longitude}</p>
-              {selectedLocation['Speed (m/s)'] && <p><strong>Speed:</strong> {selectedLocation['Speed (m/s)']} m/s</p>}
-              <p><strong>Timestamp:</strong> {selectedLocation['Timestamp Date/Time - UTC+00:00 (M/d/yyyy)']}</p>
-              <p><strong>Comments:</strong> {selectedLocation.Comments || 'No additional information available'}</p>
-            </div>
-          ) : (
-            <p>No additional information available</p>
-          )}
-        </Drawer>
+          <Drawer title="More Information" placement="right" open={isDrawerVisible} width={400} onClose={onClose}>
+            {selectedLocation ? (
+              <div>
+                <p><strong>Latitude:</strong> {selectedLocation.latitude}</p>
+                <p><strong>Longitude:</strong> {selectedLocation.longitude}</p>
+                <p><strong>Speed:</strong> {selectedLocation.speed || 'N/A'} m/s</p>
+                <p><strong>Timestamp:</strong> {selectedLocation.timestamp.toLocaleString()}</p>
+              </div>
+            ) : (
+              <p>No additional information available</p>
+            )}
+          </Drawer>
+          <FloatButton.Group trigger="click" type="primary" style={{ insetInlineEnd: 24 }} icon={<SettingOutlined />}>
+            <FloatButton icon={<ControlOutlined />}/>
+            <FloatButton icon={<AppstoreAddOutlined />} onClick={handleFileModalOpen} />
+          </FloatButton.Group>
+          <DeviceSelectionModal
+            visible={isFileModalVisible}
+            onClose={handleFileModalClose}
+            onConfirm={handleFileConfirm}
+          />
         </Layout>
       </Layout>
     </div>

@@ -9,14 +9,14 @@
       "runtimeExecutable": "npm",
       "runtimeArgs": ["run", "start"],
       "env": {
-        "MAIN_ARGS": "--inspect=5858 --remote-debugging-port=9223"
+        "MAIN_ARGS": "--inspect=5858 --remote-debugging-port=1212"
       }
     },
     {
       "name": "Electron: Renderer",
       "type": "chrome",
       "request": "attach",
-      "port": 9223,
+      "port": 1212,
       "webRoot": "${workspaceFolder}",
       "timeout": 15000
     }

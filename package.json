@@ -107,6 +107,7 @@
     "@emotion/styled": "^11.13.0",
     "@mui/material": "^6.1.2",
     "@mui/x-date-pickers": "^7.19.0",
+    "@react-three/fiber": "^8.17.10",
     "antd": "^5.21.2",
     "date-fns": "^4.1.0",
     "electron-debug": "^3.2.0",
@@ -116,7 +117,9 @@
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
     "react-leaflet": "^4.2.1",
-    "react-router-dom": "^6.16.0"
+    "react-router-dom": "^6.16.0",
+    "three": "^0.169.0",
+    "yauzl": "^3.2.0"
   },
   "devDependencies": {
     "@electron/rebuild": "^3.3.0",
