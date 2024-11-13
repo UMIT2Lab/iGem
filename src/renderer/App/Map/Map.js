@@ -36,7 +36,6 @@ export default function Map() {
   const [ktxFiles, setKtxFiles] = useState([]);
   const [matchedLocations , setMatchedLocations ] = useState([]);
   const [pngPath, setPngPath] = useState(null); // Store path to PNG image
-  const [showLimitedPoints, setShowLimitedPoints] = useState(false); // State for checkbox
 
   const loadBase64Image = async (ktxFilePath) => {
     try {
@@ -143,22 +142,6 @@ export default function Map() {
 
     fetchData();
   }, []);
-
-  useEffect(() => {
-    if (showLimitedPoints) {
-      const limitedLocations = matchedLocations.reduce((acc, location) => {
-        const fileLocations = acc[location.deviceId] || [];
-        if (fileLocations.length < 5) {
-          acc[location.deviceId] = [...fileLocations, location];
-        }
-        return acc;
-      }, {});
-
-      setVisibleLocations(Object.values(limitedLocations).flat());
-    } else {
-      setVisibleLocations(filteredLocations);
-    }
-  }, [showLimitedPoints, filteredLocations]);
 
   const togglePlayPause = () => {
     if (isPlaying) {
