@@ -1,6 +1,6 @@
 {
-  "name": "electron-react-boilerplate",
-  "version": "4.6.0",
+  "name": "geoforensics",
+  "version": "1.0.0",
   "description": "A foundation for scalable desktop apps",
   "license": "MIT",
   "author": {
@@ -12,10 +12,19 @@
   "scripts": {
     "rebuild": "node -r ts-node/register ../../.erb/scripts/electron-rebuild.js",
     "postinstall": "npm run rebuild && npm run link-modules",
-    "link-modules": "node -r ts-node/register ../../.erb/scripts/link-modules.ts"
+    "link-modules": "node -r ts-node/register ../../.erb/scripts/link-modules.ts",
+    "prestart": "node ../../src/renderer/App/Map/convert-ktx.js",
+    "start": "react-scripts start",
+    "build": "react-scripts build",
+    "test": "react-scripts test",
+    "eject": "react-scripts eject"
   },
-  "dependencies": {
+"dependencies": {
     "knex": "^3.1.0",
-    "sqlite3": "^5.1.7"
-  }
+    "sqlite3": "^5.1.7",
+    "axios": "^0.21.1"
+},
+"devDependencies": {}
 }
+
+
