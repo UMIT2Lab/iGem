@@ -33,6 +33,43 @@ export default function Map() {
   const [selectedLocation, setSelectedLocation] = useState(null);
   const [isDrawerVisible, setIsDrawerVisible] = useState(false);
   const [isFileModalVisible, setIsFileModalVisible] = useState(false);
+  const [ktxFiles, setKtxFiles] = useState([]);
+  const [matchedLocations , setMatchedLocations ] = useState([]);
+  const [pngPath, setPngPath] = useState(null); // Store path to PNG image
+  const [showLimitedPoints, setShowLimitedPoints] = useState(false); // State for checkbox
+
+  const loadBase64Image = async (ktxFilePath) => {
+    try {
+      console.log(ktxFilePath)
+      const base64Image = await ipcRenderer.invoke('convert-ktx-to-png', ktxFilePath);
+      console.log(base64Image)
+      setPngPath(base64Image); // Directly set base64 string in the img src
+    } catch (error) {
+      console.error('Error loading KTX file:', error);
+    }
+  };
+
+  const matchKtxToLocations = (locations, ktxFiles) => {
+    const matchedLocations = locations.map(location => {
+      // Find the closest KTX file to the current location
+      const closestKtxFile = ktxFiles
+        .filter(file => file.deviceId === location.deviceId)
+        .reduce((prev, curr) => {
+          const prevDiff = Math.abs(location.timestamp - prev.timestamp);
+          const currDiff = Math.abs(location.timestamp - curr.timestamp);
+          return currDiff < prevDiff ? curr : prev;
+        }, ktxFiles[0]);
+      return {
+        ...location,
+        hasKtxFile: closestKtxFile && Math.abs(location.timestamp - closestKtxFile.timestamp) < 30000, // 1-minute threshold
+        ktxObj: closestKtxFile
+      };
+    });
+    console.log(matchedLocations)
+    setMatchedLocations(
+      matchedLocations.sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp))
+    );    // setVisibleLocations(matchedLocations.slice(0, index + 1));
+  };
 
   const getRedMarkerIcon = (iconShape) => {
     switch (iconShape) {
@@ -66,38 +103,62 @@ export default function Map() {
   };
 
   useEffect(() => {
-    const fetchDevicesAndLocations = async () => {
-      try {
-        const devicesResponse = await ipcRenderer.invoke('get-devices');
-        if (!devicesResponse.success) {
-          console.error('Failed to fetch devices:', devicesResponse.error);
-          return;
+    const fetchData = async () => {
+      // Get device data from the backend
+      const devicesResponse = await ipcRenderer.invoke('get-devices');
+      const devices = devicesResponse.data;
+    
+      const allLocations = [];
+      const allKtxFiles = [];
+      let c = 1
+      // Loop through each device to fetch its locations and .ktx files
+      for (const device of devices) {
+        const deviceLocationsResponse = await ipcRenderer.invoke('get-device-locations', device.id);
+        const ktxFilesResponse = await ipcRenderer.invoke('get-ktx-files', device.id);
+    
+        if (deviceLocationsResponse.success && ktxFilesResponse.success) {
+          const deviceLocations = deviceLocationsResponse.data.map(location => ({
+            ...location,
+            timestamp: new Date(location.timestamp),
+            mapDeviceId: c,
+            deviceId: device.id
+          }));
+    
+          const deviceKtxFiles = ktxFilesResponse.data.map(file => ({
+            ...file,
+            timestamp: new Date(file.timestamp),
+            deviceId: device.id,
+          }));
+    
+          allLocations.push(...deviceLocations);
+          allKtxFiles.push(...deviceKtxFiles);
         }
-        
-        const devices = devicesResponse.data;
-        const allLocations = [];
-        
-        for (const device of devices) {
-          const deviceLocationsResponse = await ipcRenderer.invoke('get-device-locations', device.id);
-          if (deviceLocationsResponse.success) {
-            const deviceLocations = deviceLocationsResponse.data.map(location => ({
-              ...location,
-              iconUrl: getRedMarkerIcon(device.icon),
-              timestamp: new Date(location.timestamp)
-            }));
-            allLocations.push(...deviceLocations);
-          } else {
-            console.error(`Failed to fetch locations for device ${device.id}:`, deviceLocationsResponse.error);
-          }
-        }
-        setLocations(allLocations);
-      } catch (error) {
-        console.error('Error fetching devices and locations:', error);
+        c+=1
       }
+    
+      setLocations(allLocations);
+      setKtxFiles(allKtxFiles);
+      matchKtxToLocations(allLocations, allKtxFiles);
     };
 
-    fetchDevicesAndLocations();
+    fetchData();
   }, []);
+
+  useEffect(() => {
+    if (showLimitedPoints) {
+      const limitedLocations = matchedLocations.reduce((acc, location) => {
+        const fileLocations = acc[location.deviceId] || [];
+        if (fileLocations.length < 5) {
+          acc[location.deviceId] = [...fileLocations, location];
+        }
+        return acc;
+      }, {});
+
+      setVisibleLocations(Object.values(limitedLocations).flat());
+    } else {
+      setVisibleLocations(filteredLocations);
+    }
+  }, [showLimitedPoints, filteredLocations]);
 
   const togglePlayPause = () => {
     if (isPlaying) {
@@ -121,8 +182,9 @@ export default function Map() {
   };
 
   useEffect(() => {
+    setVisibleLocations([])
     if (startDateTime && endDateTime) {
-      const filtered = locations
+      const filtered = matchedLocations
         .filter((location) => Date.parse(location.timestamp) >= Date.parse(startDateTime) && Date.parse(location.timestamp) <= Date.parse(endDateTime))
         .sort((a, b) => a.timestamp - b.timestamp);
       console.log(filtered)
@@ -130,7 +192,7 @@ export default function Map() {
     } else {
       setFilteredLocations([]);
     }
-  }, [startDateTime, endDateTime, locations]);
+  }, [startDateTime, endDateTime, matchedLocations]);
 
   const startAnimation = () => {
     let currentIndex = index;
@@ -192,12 +254,35 @@ export default function Map() {
                   <CustomMarker 
                     key={i} 
                     position={[location.latitude, location.longitude]} 
-                    iconUrl={"../Icons/circle_red_marker.png"}
+                    ktx={location.hasKtxFile}
+                    mapDeviceId={location.mapDeviceId}
                   >
                     <Popup>
                       <div>
                         <p>Speed: {location.speed || 'N/A'} m/s</p>
                         <p>Timestamp: {location.timestamp.toLocaleString()}</p>
+                        <p>Device Id: {location.mapDeviceId.toLocaleString()}</p>
+                        { location.hasKtxFile &&
+                        <>
+                        <p>KTX Id: {location.ktxObj.filepath}</p>
+                        <div>
+                          <button onClick={() => loadBase64Image (location.ktxObj.filepath)}>Load KTX Image</button>
+                          {pngPath && (
+                              <img 
+                                src={pngPath} 
+                                alt="KTX Content" 
+                                style={{ 
+                                  maxWidth: '100%',  // Ensures the image doesn’t exceed the popup width
+                                  maxHeight: '150px', // Adjusts the height to fit within the popup’s visible area
+                                  objectFit: 'contain' // Scales the image while preserving aspect ratio
+                                }} 
+                              />
+                            )}
+                          </div>
+                        </>
+                        }
+
+                                            
                         <Button type="link" onClick={() => openDrawer(location)}>More Info</Button>
                       </div>
                     </Popup>

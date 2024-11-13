@@ -3,30 +3,44 @@ import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import { MapContainer, Marker, Popup, TileLayer, useMap } from "react-leaflet";
 
+const colorSchemes = [
+  {
+    deviceId: 1,
+    innerColor: "#4A90E2", // Light blue for device 1
+    borderColorPresent: "#2C6FB1", // Darker blue to indicate presence of .ktx files
+    borderColorAbsent: "#A3C3E0", // Softer blue to indicate absence of .ktx files
+  },
+  {
+    deviceId: 2,
+    innerColor: "#50E3C2", // Teal for device 2
+    borderColorPresent: "#2BA18A", // Dark teal for presence
+    borderColorAbsent: "#A0EBDD", // Light teal for absence
+  },
+  {
+    deviceId: 3,
+    innerColor: "#F5A623", // Orange for device 3
+    borderColorPresent: "#C0781A", // Dark orange for presence
+    borderColorAbsent: "#F8C99A", // Light orange for absence
+  },
+  {
+    deviceId: 4,
+    innerColor: "#B8E986", // Green for device 4
+    borderColorPresent: "#82B665", // Dark green for presence
+    borderColorAbsent: "#D6F3B5", // Light green for absence
+  }
+];
 
-
-const CustomMarker = ({ position, children, color, iconUrl }) => {
+const CustomMarker = ({ position, children, color, ktx, mapDeviceId }) => {
   const map = useMap();
-  const asdfsafs =  require("src/renderer/App/Icons/circle_red_marker.png")
-  var iconColored = new L.Icon({
-    iconUrl: asdfsafs,
-    shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/0.7.7/images/marker-shadow.png',
-    iconSize: [20, 20],
-    iconAnchor: [12, 41],
-    popupAnchor: [1, -34],
-    shadowSize: [20, 20]
-  });
 
-  //Spotify
-  const customIcon = L.icon({
-    iconUrl: "https://m.media-amazon.com/images/I/51rttY7a+9L.png",
-    iconSize: [35, 35],
-    iconAnchor: [15, 10],
-  });
+  const deviceColorScheme = colorSchemes[mapDeviceId - 1];
+  
+  // Choose border color based on ktx presence
+  const borderColor = ktx ? deviceColorScheme.borderColorPresent : deviceColorScheme.borderColorAbsent;
   const customDivIcon = L.divIcon({
     className: 'custom-div-icon',
     html: `<div style="
-      background-color: ${"red"};
+      background-color: ${deviceColorScheme.innerColor};
       width: 35px;
       height: 35px;
       border-radius: 50%;
@@ -34,15 +48,14 @@ const CustomMarker = ({ position, children, color, iconUrl }) => {
       align-items: center;
       justify-content: center;
       color: white;
-      font-size: 10px;
+      font-size: 16px;
       font-weight: bold;
-      border: 2px solid cyan;
+      border: 4px solid ${borderColor};
       overflow: hidden;
-    ">${"Akif"}</div>`,
-    iconSize: [24, 24],
-    iconAnchor: [12, 12], // Center the icon
+    ">${mapDeviceId}</div>`,
+    iconSize: [35, 35],
+    iconAnchor: [17.5, 17.5], // Center the icon
   });
-  
   return (
     <Marker position={position} icon={customDivIcon}>
       {children}
@@ -52,23 +65,3 @@ const CustomMarker = ({ position, children, color, iconUrl }) => {
 
 export default CustomMarker;
 
-// const MarkerWithBadge = props => {
-//   const initMarker = ref => {
-//     if (ref) {
-//       const popup = L.popup().setContent(props.children);
-//       ref.leafletElement
-//         .addTo(ref.contextValue.map)
-//         .bindPopup(popup, {
-//           className: "badge",
-//           closeOnClick: false,
-//           autoClose: false
-//         })
-//         .openPopup()
-//         // prevent badge from dissapearing onClick
-//         .off("click");
-//     }
-//   };
-//   return <Marker ref={initMarker} {...props} />;
-// };
-
-// export default MarkerWithBadge

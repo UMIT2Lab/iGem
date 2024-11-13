@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Modal, Card, Upload, Button, Select, Space, message, Input, Form, Steps, Spin } from 'antd';
-import { UploadOutlined, PlusOutlined, CloseOutlined, ArrowLeftOutlined } from '@ant-design/icons';
+import { UploadOutlined, PlusOutlined, CloseOutlined, ArrowLeftOutlined, LoadingOutlined } from '@ant-design/icons';
 
 const { Option } = Select;
 const { ipcRenderer } = window.require('electron');
@@ -16,9 +16,11 @@ const DeviceSelectionModal = ({ visible, onClose }) => {
 
   // Define the steps for the processing sequence
   const steps = [
-    { title: 'Save Device Info', description: 'Saving device information to the database'  },
-    { title: 'GPS Locations',  description: 'Extracting GPS Locations into the DB'  },
-    { title: 'KTX Files',  description: 'Extracting KTX Files and Converting into images'  },
+    { title: 'Save Device Info', description: 'Saving device information to the database', key: 1  },
+    { title: 'GPS Locations',  description: 'Extracting GPS Locations into the DB', key: 2  },
+    { title: 'KTX Files',  description: 'Extracting KTX Files and Converting into images', key: 3  },
+    { title: 'Finish',  description: '', key: 4  },
+
   ];
 
   // Load saved devices from the database on component mount
@@ -112,26 +114,25 @@ const DeviceSelectionModal = ({ visible, onClose }) => {
       // Step 2: Extract Files
       const extractDir = path.join(window.require('os').tmpdir(), `extracted-device-${Date.now()}`);
       if (!fs.existsSync(extractDir)) fs.mkdirSync(extractDir, { recursive: true });
-      
+      console.log(extractDir)
+
       const result = await ipcRenderer.invoke('process-zip-file', {
         icon: newDevice.icon,
         zipFilePath: newDevice.imagePath,
         extractDir: extractDir,
         deviceId: addDeviceResult.id
       });      
-      console.log(result)
+      console.log(extractDir)
       if (!result.success) throw new Error('Failed to extract files');
       setCurrentStep(2); // Move to the next step
-      try {
-        const result = await ipcRenderer.invoke('extract-matching-files', newDevice.imagePath, extractDir);
-        if (result.success) {
-          console.log(result.message);
+      console.log(extractDir)
+        const result2 = await ipcRenderer.invoke('extract-matching-files', newDevice.imagePath, extractDir, addDeviceResult.id);
+        if (result2.success) {
+          console.log(result2.message);
         } else {
-          console.error('Extraction failed:', result.message);
+          console.error('Extraction failed:', result2.message);
         }
-      } catch (error) {
-        console.error('Error in extraction:', error);
-      }
+
 
       // // Step 3: Process Data
       // const processResponse = await ipcRenderer.invoke('process-device-data', { deviceId: saveResponse.deviceId, extractDir });
@@ -174,9 +175,9 @@ const DeviceSelectionModal = ({ visible, onClose }) => {
       {loading ? (
         <div style={{ textAlign: 'center', padding: '20px' }}>
           {/* <Spin tip="Processing..."> */}
-            <Steps progressDot current={currentStep} direction="vertical">
+            <Steps current={currentStep} direction="vertical">
               {steps.map((item, index) => (
-                <Steps.Step key={index} title={item.title} description={item.description}/>
+                <Steps.Step key={index} title={item.title} description={item.description}     icon={item.key !== 1 && item.key === currentStep+1 ? <LoadingOutlined/> : ""}/>
               ))}
             </Steps>
           {/* </Spin> */}

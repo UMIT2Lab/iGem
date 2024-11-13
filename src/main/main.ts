@@ -16,6 +16,7 @@ import MenuBuilder from './menu';
 import { resolveHtmlPath } from './util';
 import * as fs from 'fs';
 import sqlite3 from 'sqlite3';
+import { execFile } from 'child_process';
 
 import yauzl from 'yauzl';
 const knex = require('./db');
@@ -26,7 +27,9 @@ interface DeviceData {
   extractDir: string;
   deviceId: Number;
 }
-
+interface DeviceId {
+  id: number;
+}
 interface LocationsObject {
   latitude: number;
   longitude: number;
@@ -38,6 +41,41 @@ interface LocationsObject {
 }
 const IOS_TO_UNIX_EPOCH_OFFSET = 978307200; // Difference in seconds between iOS epoch and Unix epoch
 
+// Define the path to the Python script
+const pythonScriptPath ='./src/main/ios_ktx2png.py';
+const pythonExecutable = 'python'; // Adjust if using 'python3' on your system
+const exePath = path.join(__dirname, 'ios_ktx2png.exe');
+
+ipcMain.handle('convert-ktx-to-png', async (event, ktxFilePath) => {
+  
+  return new Promise((resolve, reject) => {
+    execFile(exePath, [ktxFilePath], (error, stdout, stderr) => {
+      if (error) {
+        console.error('Error converting .ktx to .png:', stderr);
+        return reject(stderr);
+      }
+      const outputPngPath = ktxFilePath + '.png'
+      const imageBuffer = fs.readFileSync(outputPngPath);
+      const base64Image = imageBuffer.toString('base64');
+      console.log(base64Image)
+      resolve(`data:image/png;base64,${base64Image}`) ;
+    
+    });
+  });
+});
+
+ipcMain.handle('get-ktx-files', async (event, deviceId) => {
+  try {
+    const ktxFiles = await knex('ktx_files')
+      .where('deviceId', deviceId)
+      .select('id', 'filename', 'filepath', 'timestamp');
+
+    return { success: true, data: ktxFiles };
+  } catch (error) {
+    console.error('Error fetching KTX files:', error);
+    return { success: false, error: (error as Error).message };
+  }
+});
 
 // Convert wildcard pattern to a regular expression
 const wildcardToRegex = (pattern: string) => {
@@ -52,49 +90,71 @@ const wildcardToRegex = (pattern: string) => {
   );
 };
 
-const extractFilesMatchingPath = (zipFilePath: string, extractDir: string, pattern: string) => {
-  return new Promise((resolve, reject) => {
-    const regexPattern = wildcardToRegex(pattern); // Convert the pattern to regex
-    const ktxFolder = path.join(extractDir, 'ktx_files');
-    fs.mkdirSync(ktxFolder, { recursive: true }); // Ensure ktx_files folder exists
+const extractFilesAndSaveToDB = async (
+  zipFilePath: string,
+  extractDir: string,
+  deviceId: DeviceId, // Pass deviceId to associate files with a device
+  pattern: string
+) => {
+  const regexPattern = wildcardToRegex(pattern);
+  const ktxFolder = path.join(extractDir, 'ktx_files');
+  fs.mkdirSync(ktxFolder, { recursive: true }); // Ensure ktx_files folder exists
 
+  return new Promise<void>((resolve, reject) => {
     yauzl.open(zipFilePath, { lazyEntries: true }, (err, zipFile) => {
       if (err) return reject(err);
 
       zipFile.readEntry();
       zipFile.on('entry', (entry) => {
-        // Check if the entry path matches the regex pattern
         if (regexPattern.test(entry.fileName)) {
-          // Set the destination path to the ktx_files folder without any subdirectories
-          const entryName = path.basename(entry.fileName); // Only use the file name
-          const entryPath = path.join(ktxFolder, entryName);
+          const filename = path.basename(entry.fileName);
+          const filepath = path.join(ktxFolder, filename);
 
           zipFile.openReadStream(entry, (err, readStream) => {
             if (err) return reject(err);
 
-            const writeStream = fs.createWriteStream(entryPath);
+            const writeStream = fs.createWriteStream(filepath);
             readStream.pipe(writeStream);
-            readStream.on('end', () => zipFile.readEntry());
-            writeStream.on('finish', () => resolve(entryPath));
+
+            readStream.on('end', () => {
+              // Get original timestamp and set it on the extracted file
+              const originalTime = entry.getLastModDate();
+                // Insert file details into the database
+                knex('ktx_files').insert({
+                  deviceId:  deviceId.id,
+                  filename,
+                  filepath,
+                  timestamp: originalTime
+                }).then(() => {
+                  console.log(`Inserted ${filename} into ktx_files`);
+                }).catch((dbError: any) => {
+                  console.error('Error inserting into ktx_files:', dbError);
+                });
+              zipFile.readEntry();
+            });
+
+            writeStream.on('finish', () => console.log(`Extracted ${filename} to ${filepath}`));
           });
         } else {
           zipFile.readEntry(); // Skip entries that don’t match the pattern
         }
       });
 
-      zipFile.on('end', () => resolve(`Extraction complete to ${ktxFolder}`));
+      zipFile.on('end', () => resolve());
       zipFile.on('error', reject);
     });
   });
 };
 
-// IPC handler to trigger the extraction
-ipcMain.handle('extract-matching-files', async (event, zipFilePath, extractDir) => {
+// IPC handler to trigger the extraction and database insertion
+ipcMain.handle('extract-matching-files', async (event, zipFilePath: string, extractDir: string, deviceId: DeviceId) => {
+  console.log(extractDir)
   const matchingPathPattern = 'filesystem1/private/var/mobile/Containers/Data/Application/*/Library/SplashBoard/Snapshots/*/*.ktx';
   try {
-    const result = await extractFilesMatchingPath(zipFilePath, extractDir, matchingPathPattern);
-    return { success: true, message: result };
+    await extractFilesAndSaveToDB(zipFilePath, extractDir, deviceId, matchingPathPattern);
+    return { success: true, message: 'Extraction and database insertion complete.' };
   } catch (error) {
+    console.error('Extraction or database insertion error:', error);
     return { success: false, message: (error as Error).message };
   }
 });
@@ -121,6 +181,7 @@ async function extractFileFromZip(zipFilePath: string, targetFilePathInZip: stri
       zipfile.readEntry();
       zipfile.on('entry', (entry) => {
         if (entry.fileName === targetFilePathInZip) {
+          console.log(entry.fileName)
           const extractedFilePath = path.join(outputDir, path.basename(targetFilePathInZip));
           zipfile.openReadStream(entry, (err, readStream) => {
             if (err) return reject(err);
@@ -154,9 +215,19 @@ async function extractFileFromZip(zipFilePath: string, targetFilePathInZip: stri
   });
 }
 
+function chunkArray(array: any[], size: number) {
+  const result = [];
+  for (let i = 0; i < array.length; i += size) {
+    result.push(array.slice(i, i + size));
+  }
+  return result;
+}
+
 ipcMain.handle('process-zip-file', async (event: IpcMainInvokeEvent, { icon, zipFilePath, extractDir, deviceId }: DeviceData) => {
   try {
     const targetFilePathInZip = 'filesystem1/private/var/mobile/Library/Caches/com.apple.routined/Cache.sqlite';
+    const target2FilePathInZip = 'filesystem1/private/var/mobile/Library/Caches/com.apple.routined/Cache.sqlite-wal';
+
     // Create the extraction directory if it doesn't exist
     if (!fs.existsSync(extractDir)) {
       fs.mkdirSync(extractDir, { recursive: true });
@@ -164,8 +235,8 @@ ipcMain.handle('process-zip-file', async (event: IpcMainInvokeEvent, { icon, zip
 
     // Extract Cache.sqlite
     const extractedDbPath = await extractFileFromZip(zipFilePath, targetFilePathInZip, extractDir);
+    const extractedDbPath2 = await extractFileFromZip(zipFilePath, target2FilePathInZip, extractDir);
 
-    const id = deviceId.id
     // Open the extracted SQLite database and read data from ZRTCLLOCATIONMO
     const cacheDb = new sqlite3.Database(extractedDbPath, sqlite3.OPEN_READONLY, (err) => {
       if (err) throw new Error(`Could not open Cache.sqlite: ${err.message}`);
@@ -193,8 +264,12 @@ ipcMain.handle('process-zip-file', async (event: IpcMainInvokeEvent, { icon, zip
           timestamp: new Date((row.timestamp + IOS_TO_UNIX_EPOCH_OFFSET) * 1000), // Convert iOS time to Unix time
         }));
 
+        // Insert in batches to avoid "too many terms in compound SELECT"
+        const chunks = chunkArray(locationData, 100); // Adjust the batch size as needed
         try {
-          await knex('device_locations').insert(locationData);
+          for (const chunk of chunks) {
+            await knex('device_locations').insert(chunk);
+          }
           resolve({ success: true, message: 'Data successfully transferred to device_locations' });
         } catch (insertError) {
           console.error('Error inserting into device_locations:', (insertError as Error).message);

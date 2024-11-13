@@ -2,7 +2,7 @@ const path = require('path');
 const knex = require('knex')({
   client: 'sqlite3',
   connection: {
-    filename: path.join('C:/Users/Purdu/Desktop', 'devices.db'), // Path to the local SQLite database file
+    filename: path.join('C:/Users/akifo/Desktop', 'devices.db'), // Path to the local SQLite database file
   },
   useNullAsDefault: true,
 });
@@ -22,9 +22,9 @@ knex.schema.hasTable('devices').then((exists) => {
     });
   }
 }).then(() => {
-  console.log('Database setup complete.'); // Success message for setup completion
+  console.log('Database setup complete.');
 }).catch((error) => {
-  console.error('Error setting up database:', error); // Enhanced error message for debugging
+  console.error('Error setting up database:', error);
 });
 
 // Create the 'device_locations' table if it doesn't exist
@@ -35,9 +35,9 @@ knex.schema.hasTable('device_locations').then((exists) => {
       table.integer('deviceId').unsigned().notNullable().references('id').inTable('devices').onDelete('CASCADE');
       table.float('latitude').notNullable();
       table.float('longitude').notNullable();
-      table.float('speed').nullable(); // Allow null if speed data is unavailable
-      table.float('verticalAccuracy').nullable(); // Allow null if vertical accuracy data is unavailable
-      table.float('horizontalAccuracy').nullable(); // Allow null if horizontal accuracy data is unavailable
+      table.float('speed').nullable();
+      table.float('verticalAccuracy').nullable();
+      table.float('horizontalAccuracy').nullable();
       table.timestamp('timestamp').notNullable();
     });
   }
@@ -45,6 +45,23 @@ knex.schema.hasTable('device_locations').then((exists) => {
   console.log('Device locations table setup complete.');
 }).catch((error) => {
   console.error('Error setting up device locations table:', error);
+});
+
+// Create the 'ktx_files' table if it doesn't exist
+knex.schema.hasTable('ktx_files').then((exists) => {
+  if (!exists) {
+    return knex.schema.createTable('ktx_files', (table) => {
+      table.increments('id').primary();
+      table.integer('deviceId').unsigned().notNullable().references('id').inTable('devices').onDelete('CASCADE');
+      table.string('filename').notNullable();    // Name of the .ktx file
+      table.string('filepath').notNullable();    // Full path to the .ktx file
+      table.timestamp('timestamp').notNullable(); // Original timestamp of the file
+    });
+  }
+}).then(() => {
+  console.log('KTX files table setup complete.');
+}).catch((error) => {
+  console.error('Error setting up KTX files table:', error);
 });
 
 module.exports = knex;
