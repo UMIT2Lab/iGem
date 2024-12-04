@@ -47,7 +47,7 @@ const pythonExecutable = 'python'; // Adjust if using 'python3' on your system
 const exePath = path.join(__dirname, 'ios_ktx2png.exe');
 
 ipcMain.handle('convert-ktx-to-png', async (event, ktxFilePath) => {
-  
+  console.log(exePath)
   return new Promise((resolve, reject) => {
     execFile(exePath, [ktxFilePath], (error, stdout, stderr) => {
       if (error) {
@@ -62,6 +62,112 @@ ipcMain.handle('convert-ktx-to-png', async (event, ktxFilePath) => {
     
     });
   });
+});
+
+
+
+// IPC handler to trigger the extraction and database insertion
+ipcMain.handle('extract-knowledge-db', async (event, zipFilePath: string, extractDir: string, deviceId: DeviceId) => {
+  try {
+    const targetFilePathInZip = 'filesystem1/private/var/mobile/Library/CoreDuet/Knowledge/knowledgeC.db';
+
+    // Create the extraction directory if it doesn't exist
+    if (!fs.existsSync(extractDir)) {
+      fs.mkdirSync(extractDir, { recursive: true });
+    }
+
+    // Extract Cache.sqlite
+    const extractedDbPath = await extractFileFromZip(zipFilePath, targetFilePathInZip, extractDir);
+
+    // Open the extracted SQLite database and read data from ZRTCLLOCATIONMO
+    const cacheDb = new sqlite3.Database(extractedDbPath, sqlite3.OPEN_READONLY, (err) => {
+      if (err) throw new Error(`Could not open Cache.sqlite: ${err.message}`);
+    });
+
+    const focusQuery = `
+    SELECT
+      ZOBJECT.ZSTARTDATE AS "Start Time",
+      ZOBJECT.ZENDDATE AS "End Time",
+      ZOBJECT.ZVALUESTRING AS "Bundle Identifier",
+      ZOBJECT.ZENDDATE - ZOBJECT.ZSTARTDATE AS "Focus Duration (Seconds)"
+    FROM
+      ZOBJECT
+    WHERE
+      ZOBJECT.ZSTREAMNAME = "/app/inFocus"
+    ORDER BY
+      ZOBJECT.ZSTARTDATE DESC;
+  `;
+  
+  const usageQuery = `
+    SELECT
+      ZOBJECT.ZSTARTDATE AS "Start Time",
+      ZOBJECT.ZENDDATE AS "End Time",
+      ZOBJECT.ZVALUESTRING AS "Bundle Identifier",
+      ZOBJECT.ZENDDATE - ZOBJECT.ZSTARTDATE AS "Usage Duration (Seconds)"
+    FROM
+      ZOBJECT
+    WHERE
+      ZOBJECT.ZSTREAMNAME = "/app/usage"
+    ORDER BY
+      ZOBJECT.ZSTARTDATE DESC;
+  `;
+  
+  return new Promise((resolve, reject) => {
+    const processQuery = (query, type) => {
+      return new Promise((resolveQuery, rejectQuery) => {
+        cacheDb.all(query, (err, rows) => {
+          if (err) {
+            console.error(`Error querying ZOBJECT for ${type}:`, err.message);
+            return rejectQuery(err.message);
+          }
+
+          // Map rows to application_data format
+          const appUsageData = rows.map(row => ({
+            deviceId: deviceId.id,
+            bundleIdentifier: row['Bundle Identifier'],
+            startTime: new Date((row['Start Time'] + IOS_TO_UNIX_EPOCH_OFFSET) * 1000),
+            endTime: new Date((row['End Time'] + IOS_TO_UNIX_EPOCH_OFFSET) * 1000),
+            duration: row[type === 'focus' ? 'Focus Duration (Seconds)' : 'Usage Duration (Seconds)'],
+            type,
+          }));
+  
+          resolveQuery(appUsageData);
+        });
+      });
+    };
+  
+    Promise.all([
+      processQuery(focusQuery, 'focus'),
+      processQuery(usageQuery, 'usage')
+    ])
+      .then(async ([focusData, usageData]) => {
+        const allData = [...focusData, ...usageData];
+  
+        // Insert in batches to avoid "too many terms in compound SELECT"
+        const chunks = chunkArray(allData, 100); // Adjust the batch size as needed
+        try {
+          for (const chunk of chunks) {
+            await knex('application_data').insert(chunk);
+          }
+          resolve({ success: true, message: 'Data successfully transferred to application_data' });
+        } catch (insertError) {
+          console.error('Error inserting into application_data:', insertError.message);
+          reject({ success: false, error: insertError.message });
+        } finally {
+          cacheDb.close();
+        }
+      })
+      .catch((queryError) => {
+        console.error('Error processing queries:', queryError);
+        cacheDb.close();
+        reject({ success: false, error: queryError });
+      });
+  });
+  
+  } catch (error) {
+    console.error('Error processing ZIP file:', error);
+    return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
+  }
 });
 
 ipcMain.handle('get-ktx-files', async (event, deviceId) => {
@@ -149,7 +255,7 @@ const extractFilesAndSaveToDB = async (
 // IPC handler to trigger the extraction and database insertion
 ipcMain.handle('extract-matching-files', async (event, zipFilePath: string, extractDir: string, deviceId: DeviceId) => {
   console.log(extractDir)
-  const matchingPathPattern = 'filesystem1/private/var/mobile/Containers/Data/Application/*/Library/SplashBoard/Snapshots/*/*.ktx';
+  const matchingPathPattern = '*/private/var/mobile/Containers/Data/Application/*/Library/SplashBoard/Snapshots/*/*.ktx';
   try {
     await extractFilesAndSaveToDB(zipFilePath, extractDir, deviceId, matchingPathPattern);
     return { success: true, message: 'Extraction and database insertion complete.' };
@@ -305,12 +411,25 @@ ipcMain.handle('get-devices', async () => {
   }
 });
 
+ipcMain.handle('get-app-usage', async (event, deviceId: number) => {
+  try {
+    console.log(deviceId)
+    const data = await knex('application_data').select('*').where({ deviceId });
+    
+    return { success: true, data };
+  } catch (error) {
+    console.error('Error adding device:', error);
+    return { success: false, error: (error as Error).message };
+  }
+});
+
+
+
 ipcMain.handle('add-device', async (event, device) => {
   try {
     const [id] = await knex('devices')
       .insert({
         name: device.name,
-        icon: device.icon,
         imagePath: device.imagePath,
         created_at: device.created_at,
       })

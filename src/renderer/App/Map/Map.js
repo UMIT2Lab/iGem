@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useRef } from 'react';
 import CustomMarker from "./CustomMarker";
-import { DatePicker, Button, Layout, Row, Col, Slider, Drawer, FloatButton } from 'antd';
+import { DatePicker, Button, Layout, Row, Col, Slider, Drawer, FloatButton, Image } from 'antd';
 import {
   PlayCircleOutlined,
   PauseCircleOutlined,
@@ -11,10 +11,6 @@ import {
   ControlOutlined,
 } from '@ant-design/icons';
 import { MapContainer, TileLayer, Popup, LayersControl } from 'react-leaflet';
-import circleRedMarker from '../Icons/circle_red_marker.png';
-import squareRedMarker from '../Icons/square_red_marker.png';
-import starRedMarker from '../Icons/star_red_marker.png';
-import triangleRedMarker from '../Icons/triangle_red_marker.png';
 import FileSelectionModal from '../Modals/FileSelectionModal';
 import DeviceSelectionModal from '../Modals/DeviceSelectionModal';
 
@@ -36,6 +32,7 @@ export default function Map() {
   const [ktxFiles, setKtxFiles] = useState([]);
   const [matchedLocations , setMatchedLocations ] = useState([]);
   const [pngPath, setPngPath] = useState(null); // Store path to PNG image
+  const [sliderValue, setSliderValue] = useState(0); // Store path to PNG image
 
   const loadBase64Image = async (ktxFilePath) => {
     try {
@@ -49,41 +46,53 @@ export default function Map() {
   };
 
   const matchKtxToLocations = (locations, ktxFiles) => {
+    // Track matched `.ktx` files
+    const matchedKtxFiles = new Set();
+  
     const matchedLocations = locations.map(location => {
-      // Find the closest KTX file to the current location
-      const closestKtxFile = ktxFiles
-        .filter(file => file.deviceId === location.deviceId)
-        .reduce((prev, curr) => {
-          const prevDiff = Math.abs(location.timestamp - prev.timestamp);
-          const currDiff = Math.abs(location.timestamp - curr.timestamp);
-          return currDiff < prevDiff ? curr : prev;
-        }, ktxFiles[0]);
+      // Filter `.ktx` files by the same deviceId and exclude already matched files
+      const availableKtxFiles = ktxFiles.filter(
+        file => file.deviceId === location.deviceId && !matchedKtxFiles.has(file)
+      );
+  
+      // Find the closest KTX file by timestamp, within a 20-second threshold
+      const closestKtxFile = availableKtxFiles.length > 0
+        ? availableKtxFiles.reduce((prev, curr) => {
+            const prevDiff = Math.abs(location.timestamp - prev.timestamp);
+            const currDiff = Math.abs(location.timestamp - curr.timestamp);
+            return currDiff < prevDiff ? curr : prev;
+          })
+        : null; // If no matching `.ktx` files, set to null
+  
+      // Check if the closest KTX file is within the 20-second threshold
+      const isWithinThreshold = closestKtxFile
+        ? Math.abs(location.timestamp - closestKtxFile.timestamp) <= 20000 // 20 seconds in milliseconds
+        : false;
+  
+      // Mark the matched `.ktx` file as used if within the threshold
+      if (closestKtxFile && isWithinThreshold) {
+        matchedKtxFiles.add(closestKtxFile);
+      }
+  
       return {
         ...location,
-        hasKtxFile: closestKtxFile && Math.abs(location.timestamp - closestKtxFile.timestamp) < 30000, // 1-minute threshold
-        ktxObj: closestKtxFile
+        hasKtxFile: isWithinThreshold, // True if a match is within the threshold
+        ktxObj: isWithinThreshold ? closestKtxFile : null, // Closest `.ktx` file or null if no match
       };
     });
-    console.log(matchedLocations)
-    setMatchedLocations(
-      matchedLocations.sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp))
-    );    // setVisibleLocations(matchedLocations.slice(0, index + 1));
+  
+    // Sort the matched locations by timestamp
+    const sortedMatchedLocations = matchedLocations.sort(
+      (a, b) => new Date(a.timestamp) - new Date(b.timestamp)
+    );
+  
+    console.log(sortedMatchedLocations);
+  
+    // Update state
+    setMatchedLocations(sortedMatchedLocations);
   };
+  
 
-  const getRedMarkerIcon = (iconShape) => {
-    switch (iconShape) {
-      case 'circle':
-        return circleRedMarker;
-      case 'square':
-        return squareRedMarker;
-      case 'star':
-        return starRedMarker;
-      case 'triangle':
-        return triangleRedMarker;
-      default:
-        return circleRedMarker;
-    }
-  };
 
   const handleFileModalOpen = () => {
     setIsFileModalVisible(true);
@@ -103,45 +112,76 @@ export default function Map() {
 
   useEffect(() => {
     const fetchData = async () => {
-      // Get device data from the backend
+      // Fetch device information from the backend
       const devicesResponse = await ipcRenderer.invoke('get-devices');
       const devices = devicesResponse.data;
-    
+  
       const allLocations = [];
       const allKtxFiles = [];
-      let c = 1
-      // Loop through each device to fetch its locations and .ktx files
+      const allAppUsage = [];
+      let c = 1;
+  
+      // Loop through each device to fetch its locations, .ktx files, and app usage data
       for (const device of devices) {
         const deviceLocationsResponse = await ipcRenderer.invoke('get-device-locations', device.id);
         const ktxFilesResponse = await ipcRenderer.invoke('get-ktx-files', device.id);
-    
-        if (deviceLocationsResponse.success && ktxFilesResponse.success) {
+        const appUsageResponse = await ipcRenderer.invoke('get-app-usage', device.id);
+
+        if (
+          deviceLocationsResponse.success &&
+          ktxFilesResponse.success &&
+          appUsageResponse.success
+        ) {
           const deviceLocations = deviceLocationsResponse.data.map(location => ({
             ...location,
             timestamp: new Date(location.timestamp),
             mapDeviceId: c,
-            deviceId: device.id
+            deviceId: device.id,
           }));
-    
+  
           const deviceKtxFiles = ktxFilesResponse.data.map(file => ({
             ...file,
             timestamp: new Date(file.timestamp),
             deviceId: device.id,
           }));
-    
+  
+          const deviceAppUsage = appUsageResponse.data.map(appUsage => ({
+            ...appUsage,
+            startTime: new Date(appUsage.startTime),
+            endTime: new Date(appUsage.endTime),
+            deviceId: device.id,
+          }));
+          console.log(deviceAppUsage)
           allLocations.push(...deviceLocations);
           allKtxFiles.push(...deviceKtxFiles);
+          allAppUsage.push(...deviceAppUsage);
         }
-        c+=1
+        c += 1;
       }
-    
+  
+      // Merge app usage data with locations
+      const matchedLocations = allLocations.map(location => {
+        const matchingAppUsage = allAppUsage.find(
+          appUsage =>
+            appUsage.deviceId === location.deviceId &&
+            appUsage.startTime <= location.timestamp &&
+            appUsage.endTime >= location.timestamp
+        );
+        // console.log(location, matchingAppUsage)
+        return {
+          ...location,
+          appUsage: matchingAppUsage || null,
+        };
+      });
+  
       setLocations(allLocations);
       setKtxFiles(allKtxFiles);
-      matchKtxToLocations(allLocations, allKtxFiles);
+      matchKtxToLocations(matchedLocations, allKtxFiles);
+      console.log(matchedLocations.filter(x => x.appUsage != null))
     };
-
+  
     fetchData();
-  }, []);
+  }, [isFileModalVisible]);
 
   const togglePlayPause = () => {
     if (isPlaying) {
@@ -189,6 +229,11 @@ export default function Map() {
     }, 500);
   };
 
+  const sliderUpdate = (newIndex) => {
+    setIndex(newIndex)
+    updateVisibleLocations(newIndex)
+  }
+
   const updateVisibleLocations = (newIndex) => {
     const recentLocations = filteredLocations.slice(0, newIndex + 1);
     setVisibleLocations(recentLocations);
@@ -222,58 +267,70 @@ export default function Map() {
                 <Button onClick={backward} icon={<StepBackwardOutlined />} />
                 <Button onClick={togglePlayPause} icon={isPlaying ? <PauseCircleOutlined /> : <PlayCircleOutlined />} />
                 <Button onClick={forward} icon={<StepForwardOutlined />} />
-                <Slider style={{ width: 100, marginLeft: 20 }} value={index} max={filteredLocations.length - 1} />
+                <Slider style={{ width: 100, marginLeft: 20 }} value={index} onChange={sliderUpdate} tooltip={{ open: false }} max={filteredLocations.length - 1} step={1}/>
                 <span style={{ marginLeft: '10px' }}>{index}/{filteredLocations.length || 1}</span>
               </div>
             </Col>
           </Row>
         </Header>
         <Layout>
-          <MapContainer center={[40.454, -86.904]} zoom={13} style={{ height: 'calc(100vh - 64px)', width:'100vw' }}>
-            <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
-            <LayersControl position="topright">
-              <LayersControl.Overlay checked name="GPS Locations">
-                {visibleLocations.map((location, i) => (
-                  <CustomMarker 
-                    key={i} 
-                    position={[location.latitude, location.longitude]} 
-                    ktx={location.hasKtxFile}
-                    mapDeviceId={location.mapDeviceId}
-                  >
-                    <Popup>
-                      <div>
-                        <p>Speed: {location.speed || 'N/A'} m/s</p>
-                        <p>Timestamp: {location.timestamp.toLocaleString()}</p>
-                        <p>Device Id: {location.mapDeviceId.toLocaleString()}</p>
-                        { location.hasKtxFile &&
-                        <>
-                        <p>KTX Id: {location.ktxObj.filepath}</p>
-                        <div>
-                          <button onClick={() => loadBase64Image (location.ktxObj.filepath)}>Load KTX Image</button>
-                          {pngPath && (
-                              <img 
-                                src={pngPath} 
-                                alt="KTX Content" 
-                                style={{ 
-                                  maxWidth: '100%',  // Ensures the image doesn’t exceed the popup width
-                                  maxHeight: '150px', // Adjusts the height to fit within the popup’s visible area
-                                  objectFit: 'contain' // Scales the image while preserving aspect ratio
-                                }} 
-                              />
-                            )}
-                          </div>
-                        </>
+        <MapContainer center={[40.454, -86.904]} zoom={13} style={{ height: 'calc(100vh - 64px)', width:'100vw' }}>
+        <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
+        <LayersControl position="topright">
+          <LayersControl.Overlay checked name="GPS Locations">
+            {visibleLocations.map((location, i) => (
+              <CustomMarker 
+                key={i} 
+                position={[location.latitude, location.longitude]} 
+                ktx={location.hasKtxFile}
+                mapDeviceId={location.mapDeviceId}
+                appUsage={location.appUsage}
+              >
+                  <Popup
+                    eventHandlers={{
+                      add: () => {
+                        // Automatically load KTX file when the popup is added to the map
+                        if (location.hasKtxFile) {
+                          loadBase64Image(location.ktxObj.filepath);
                         }
+                      },
+                    }}
+                  >
+                  <div>
+                    <p>Speed: {location.speed || 'N/A'} m/s</p>
+                    <p>Timestamp: {location.timestamp.toLocaleString()}</p>
+                    <p>Device Id: {location.mapDeviceId.toLocaleString()}</p>
+                    {location.appUsage != null && (
+                      <>
+                        <p>Application: {location.appUsage.bundleIdentifier}</p>
+                        <p>Type: {location.appUsage.type}</p>
+                      </>
+                    )}
+                    {location.hasKtxFile && (
+                      <>
+                        <p>KTX Id: {location.ktxObj.filepath}</p>
+                        {pngPath && (
+                          <Image
+                            src={pngPath}
+                            alt="KTX Content"
+                            style={{
+                              maxWidth: '100%', // Ensures the image doesn’t exceed the popup width
+                              maxHeight: '150px', // Adjusts the height to fit within the popup’s visible area
+                              objectFit: 'contain', // Scales the image while preserving aspect ratio
+                            }}
+                          />
+                        )}
+                      </>
+                    )}
+                    {/* <Button type="link" onClick={() => openDrawer(location)}>More Info</Button> */}
+                  </div>
+                </Popup>
+              </CustomMarker>
+            ))}
+          </LayersControl.Overlay>
+        </LayersControl>
+      </MapContainer>
 
-                                            
-                        <Button type="link" onClick={() => openDrawer(location)}>More Info</Button>
-                      </div>
-                    </Popup>
-                  </CustomMarker>
-                ))}
-              </LayersControl.Overlay>
-            </LayersControl>
-          </MapContainer>
           <div style={{
             position: 'absolute', top: '10px', right: '10px', backgroundColor: 'rgba(255, 255, 255, 0.8)',
             padding: '10px', borderRadius: '5px', fontSize: '14px', color: '#333'

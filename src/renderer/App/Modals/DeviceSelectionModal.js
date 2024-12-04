@@ -19,7 +19,8 @@ const DeviceSelectionModal = ({ visible, onClose }) => {
     { title: 'Save Device Info', description: 'Saving device information to the database', key: 1  },
     { title: 'GPS Locations',  description: 'Extracting GPS Locations into the DB', key: 2  },
     { title: 'KTX Files',  description: 'Extracting KTX Files and Converting into images', key: 3  },
-    { title: 'Finish',  description: '', key: 4  },
+    { title: 'App Usage',  description: 'Extracting app usage information from KnowledgeC database', key: 4  },
+    { title: 'Finish',  description: '', key: 5  },
 
   ];
 
@@ -97,7 +98,7 @@ const DeviceSelectionModal = ({ visible, onClose }) => {
     return new Promise(resolve => setTimeout(resolve, ms));
   }
   const handleConfirmNewDevice = async () => {
-    if (!newDevice.name || !newDevice.imagePath || !newDevice.icon) {
+    if (!newDevice.name || !newDevice.imagePath) {
       message.error('Please fill out all fields.');
       return;
     }
@@ -106,7 +107,7 @@ const DeviceSelectionModal = ({ visible, onClose }) => {
     setCurrentStep(0); // Start from the first step
 
     try {
-      // Step 1: Save Device Info
+      // // Step 1: Save Device Info
       const addDeviceResult = await ipcRenderer.invoke('add-device', { ...newDevice, created_at: Date.now() });
       if (!addDeviceResult.success) throw new Error('Failed to save device info');
       setCurrentStep(1); // Move to the next step
@@ -117,7 +118,6 @@ const DeviceSelectionModal = ({ visible, onClose }) => {
       console.log(extractDir)
 
       const result = await ipcRenderer.invoke('process-zip-file', {
-        icon: newDevice.icon,
         zipFilePath: newDevice.imagePath,
         extractDir: extractDir,
         deviceId: addDeviceResult.id
@@ -133,12 +133,13 @@ const DeviceSelectionModal = ({ visible, onClose }) => {
           console.error('Extraction failed:', result2.message);
         }
 
+      setCurrentStep(3); // Move to the next step
 
-      // // Step 3: Process Data
-      // const processResponse = await ipcRenderer.invoke('process-device-data', { deviceId: saveResponse.deviceId, extractDir });
-      // if (!processResponse.success) throw new Error('Failed to process device data');
+      // Step 3: Process Data
+      const processResponse = await ipcRenderer.invoke('extract-knowledge-db', newDevice.imagePath, extractDir, addDeviceResult.id);
+      console.log(processResponse)
       
-      // setCurrentStep(3); // Move to the next step
+      setCurrentStep(4); // Move to the next step
       await sleep(2 * 1000);
 
 
@@ -148,19 +149,14 @@ const DeviceSelectionModal = ({ visible, onClose }) => {
     } catch (error) {
       message.error(error.message || 'Error processing device');
     } finally {
+      ipcRenderer.invoke('get-devices').then((res) => setDevices(res.data));
       setLoading(false); // Hide loading spinner
       setIsAddingDevice(false)
     }
   };
 
   const handleConfirm = async () => {
-    for (const device of devices) {
-      if (!device.icon || !device.zipFilePath) {
-        message.error('Please select an icon and a ZIP file for each device.');
-        return;
-      }
-    }
-    message.success('All devices processed and saved.');
+
     onClose();
   };
 
@@ -193,19 +189,6 @@ const DeviceSelectionModal = ({ visible, onClose }) => {
                 onChange={(e) => setNewDevice({ ...newDevice, name: e.target.value })}
               />
             </Form.Item>
-            <Form.Item label="Select Icon">
-              <Select
-                placeholder="Select an Icon"
-                style={{ width: '100%' }}
-                value={newDevice.icon}
-                onChange={(value) => handleIconChange(value)}
-              >
-                <Option value="circle">Circle</Option>
-                <Option value="square">Square</Option>
-                <Option value="star">Star</Option>
-                <Option value="triangle">Triangle</Option>
-              </Select>
-            </Form.Item>
             <Form.Item label="Select Image File">
               <Upload
                 beforeUpload={(file) => handleFileChange(file)}
@@ -227,7 +210,6 @@ const DeviceSelectionModal = ({ visible, onClose }) => {
               style={{ marginBottom: '10px' }}
               extra={<CloseOutlined onClick={() => removeDevice(device.id)} style={{ cursor: 'pointer' }} />}
             >
-              <p><strong>Device Icon:</strong> {device.icon || 'N/A'}</p>
               <p><strong>Device Image Path:</strong> {device.imagePath || 'N/A'}</p>
               <p><strong>Device Process Date:</strong> {device.created_at ? new Date(device.created_at).toLocaleString() : 'N/A'}</p>
             </Card>
