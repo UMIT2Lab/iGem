@@ -1,15 +1,17 @@
-import React from "react";
-import L from "leaflet";
-import "leaflet/dist/leaflet.css";
-import { MapContainer, Marker, Popup, TileLayer, useMap } from "react-leaflet";
+import React from 'react'
+import L from 'leaflet'
+import 'leaflet/dist/leaflet.css'
+import { MapContainer, Marker, Popup, TileLayer, useMap } from 'react-leaflet'
 import colorSchemes from './ColorSchemes'
 
 const CustomMarker = ({ position, children, color, ktx, mapDeviceId, appUsage }) => {
-  const map = useMap();
-  const deviceColorScheme = colorSchemes[mapDeviceId - 1];
-  
+  const map = useMap()
+  const deviceColorScheme = colorSchemes[mapDeviceId - 1]
+
   // Choose border color based on ktx presence
-  const borderColor = ktx ? deviceColorScheme.borderColorPresent : deviceColorScheme.borderColorAbsent;
+  const borderColor = ktx
+    ? deviceColorScheme.borderColorPresent
+    : deviceColorScheme.borderColorAbsent
   const customDivIcon = L.divIcon({
     className: 'custom-div-icon',
     html: `<div style="
@@ -46,11 +48,11 @@ const CustomMarker = ({ position, children, color, ktx, mapDeviceId, appUsage })
                 font-weight: bold;
                 box-shadow: 0 0 2px rgba(0,0,0,0.2);
               ">1</div>`
-          : ""
+          : ''
       }
             ${
-        appUsage
-          ? `<div style="
+              appUsage
+                ? `<div style="
                 position: absolute;
                 top: -12px;
                 left: -12px;
@@ -66,21 +68,23 @@ const CustomMarker = ({ position, children, color, ktx, mapDeviceId, appUsage })
                 font-size: 10px;
                 font-weight: bold;
                 box-shadow: 0 0 2px rgba(0,0,0,0.2);
-              ">${appUsage.type == "focus" ? "F" : "U"}</div>`
-          : ""
-      }
+              ">${appUsage.type == 'focus' ? 'F' : 'U'}</div>`
+                : ''
+            }
 
     </div>`,
     iconSize: [35, 35],
-    iconAnchor: [17.5, 17.5], // Center the icon
-  });
+    iconAnchor: [17.5, 17.5] // Center the icon
+  })
   return (
     <Marker position={position} icon={customDivIcon}>
       {children}
     </Marker>
-  );
-};
+  )
+}
 
-export default CustomMarker;
+export default CustomMarker
 
-{/* */}
+{
+  /* */
+}

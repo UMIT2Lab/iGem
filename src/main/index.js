@@ -18,7 +18,7 @@ function createWindow() {
       preload: join(__dirname, '../preload/index.js'),
       sandbox: false,
       nodeIntegration: true,
-      contextIsolation: false,
+      contextIsolation: false
     }
   })
 
@@ -38,16 +38,13 @@ function createWindow() {
   } else {
     mainWindow.loadFile(join(__dirname, '../renderer/index.html'))
   }
-
-
 }
-
 
 // This method will be called when Electron has finished
 // initialization and is ready to create browser windows.
 // Some APIs can only be used after this event occurs.
 app.whenReady().then(() => {
-  console.log('Registered IPC Handlers:', ipcMain.eventNames());
+  console.log('Registered IPC Handlers:', ipcMain.eventNames())
 
   // Set app user model id for windows
   electronApp.setAppUserModelId('com.igem')
@@ -75,7 +72,6 @@ app.whenReady().then(() => {
 // for applications and their menu bar to stay active until the user quits
 // explicitly with Cmd + Q.
 app.on('window-all-closed', () => {
-
   if (process.platform !== 'darwin') {
     app.quit()
   }

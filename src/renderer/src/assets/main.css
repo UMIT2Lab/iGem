@@ -6,7 +6,4 @@ html, body, #root {
   overflow: hidden; /* Prevent scrollbars */
 }
 
-#root {
-  display: flex;
-  flex-direction: column;
-}
+
