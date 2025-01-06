@@ -13,6 +13,7 @@ const IOS_TO_UNIX_EPOCH_OFFSET = 978307200 // Difference in seconds between iOS 
 const pythonScriptPath = './src/main/ios_ktx2png.py'
 const pythonExecutable = 'python' // Adjust if using 'python3' on your system
 const exePath = path.join(__dirname, 'ios_ktx2png.exe')
+console.log(exePath)
 
 ipcMain.handle('convert-ktx-to-png', async (event, ktxFilePath) => {
   console.log(exePath)
