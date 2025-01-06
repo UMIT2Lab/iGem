@@ -2,13 +2,13 @@ const path = require('path')
 const knex = require('knex')({
   client: 'sqlite3',
   connection: {
-    filename: path.join('C:/Users/akifo/Desktop', 'devices.db') // Path to the local SQLite database file
+    filename: path.join('./db', 'devices.db') // Path to the local SQLite database file
   },
   useNullAsDefault: true
 })
 
 // Log the database path for debugging
-console.log('Database path:', path.join(__dirname, 'devices.db'))
+console.log('Database path:', path.join('./db', 'devices.db'))
 
 // Create the 'devices' table if it doesn't exist
 knex.schema

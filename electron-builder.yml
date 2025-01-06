@@ -9,10 +9,9 @@ files:
   - '!{.eslintignore,.eslintrc.cjs,.prettierignore,.prettierrc.yaml,dev-app-update.yml,CHANGELOG.md,README.md}'
   - '!{.env,.env.*,.npmrc,pnpm-lock.yaml}'
 asarUnpack:
-  - node_modules/sqlite3
   - resources/**
 win:
-  executableName: iGem
+  executableName: igem
 nsis:
   artifactName: ${name}-${version}-setup.${ext}
   shortcutName: ${productName}

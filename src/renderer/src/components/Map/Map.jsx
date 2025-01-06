@@ -1,5 +1,3 @@
-/* eslint-disable react/jsx-key */
-/* eslint-disable prettier/prettier */
 import { useEffect, useState, useRef } from 'react'
 import CustomMarker from './CustomMarker'
 import {
@@ -33,33 +31,7 @@ import 'leaflet/dist/leaflet.css'
 const { Meta } = Card
 const { Header } = Layout
 const { ipcRenderer } = window.require('electron') // Import ipcRenderer for database fetching
-const items = [
-  {
-    key: '1',
-    label: 'UserName',
-    children: 'Zhou Maomao',
-  },
-  {
-    key: '2',
-    label: 'Telephone',
-    children: '1810000000',
-  },
-  {
-    key: '3',
-    label: 'Live',
-    children: 'Hangzhou, Zhejiang',
-  },
-  {
-    key: '4',
-    label: 'Remark',
-    children: 'empty',
-  },
-  {
-    key: '5',
-    label: 'Address',
-    children: 'No. 18, Wantang Road, Xihu District, Hangzhou, Zhejiang, China',
-  },
-];
+
 export default function Map() {
   const [filteredLocations, setFilteredLocations] = useState([])
   const [visibleLocations, setVisibleLocations] = useState([])
@@ -75,7 +47,7 @@ export default function Map() {
   const [ktxFiles, setKtxFiles] = useState([])
   const [matchedLocations, setMatchedLocations] = useState([])
   const [pngPath, setPngPath] = useState(null) // Store path to PNG image
-  const [sliderValue, setSliderValue] = useState(0) 
+  const [sliderValue, setSliderValue] = useState(0)
   const [fetchedDevices, setFetchedDevices] = useState([])
 
   const loadBase64Image = async (ktxFilePath) => {
@@ -319,41 +291,19 @@ export default function Map() {
           }}
         >
           <Row gutter={[16, 16]} align="middle">
-            <Col span={2}>
-              <DatePicker
-                showTime
-                value={startDateTime}
-                onChange={(date) => setStartDateTime(date)}
-                placeholder="Start DateTime"
-              />
+            <Col>
+              <DatePicker showTime value={startDateTime} onChange={(date) => setStartDateTime(date)} placeholder="Start DateTime" />
             </Col>
-            <Col span={2}>
-              <DatePicker
-                showTime
-                value={endDateTime}
-                onChange={(date) => setEndDateTime(date)}
-                placeholder="End DateTime"
-              />
+            <Col>
+              <DatePicker showTime value={endDateTime} onChange={(date) => setEndDateTime(date)} placeholder="End DateTime" />
             </Col>
-            <Col span={6}>
+            <Col>
               <div style={{ display: 'flex', alignItems: 'center' }}>
-                  <Button onClick={backward} icon={<StepBackwardOutlined />} />
-                  <Button
-                    onClick={togglePlayPause}
-                    icon={isPlaying ? <PauseCircleOutlined /> : <PlayCircleOutlined />}
-                  />
-                  <Button onClick={forward} icon={<StepForwardOutlined />} />
-                  <Slider
-                    style={{ width: 150, marginLeft: 20 }}
-                    value={index}
-                    onChange={sliderUpdate}
-                    tooltip={{ open: false }}
-                    max={filteredLocations.length - 1}
-                    step={1}
-                  />
-                <span style={{ marginLeft: '10px' }}>
-                  {index}/{filteredLocations.length || 1}
-                </span>
+                <Button onClick={backward} icon={<StepBackwardOutlined />} />
+                <Button onClick={togglePlayPause} icon={isPlaying ? <PauseCircleOutlined /> : <PlayCircleOutlined />} />
+                <Button onClick={forward} icon={<StepForwardOutlined />} />
+                <Slider style={{ width: 100, marginLeft: 20 }} value={index} onChange={sliderUpdate} tooltip={{ open: false }} max={filteredLocations.length - 1} step={1} />
+                <span style={{ marginLeft: '10px' }}>{index}/{filteredLocations.length || 1}</span>
               </div>
             </Col>
           </Row>
@@ -361,11 +311,7 @@ export default function Map() {
         <Layout>
           <Row>
             <Col span={18}>
-              <MapContainer
-                center={[]}
-                zoom={4}
-                style={{ height: 'calc(100vh - 64px)' }}
-              >
+              <MapContainer center={[40.454, -86.904]} zoom={4} style={{ width: '100%', height: 'calc(100vh - 64px)', }}>
                 <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
                 <LayersControl position="topright">
                   <LayersControl.Overlay checked name="GPS Locations">
@@ -382,9 +328,9 @@ export default function Map() {
                             add: () => {
                               // Automatically load KTX file when the popup is added to the map
                               if (location.hasKtxFile) {
-                                loadBase64Image(location.ktxObj.filepath)
+                                loadBase64Image(location.ktxObj.filepath);
                               }
-                            }
+                            },
                           }}
                         >
                           <div>
@@ -407,7 +353,7 @@ export default function Map() {
                                     style={{
                                       maxWidth: '100%', // Ensures the image doesn’t exceed the popup width
                                       maxHeight: '150px', // Adjusts the height to fit within the popup’s visible area
-                                      objectFit: 'contain' // Scales the image while preserving aspect ratio
+                                      objectFit: 'contain', // Scales the image while preserving aspect ratio
                                     }}
                                   />
                                 )}
@@ -421,45 +367,43 @@ export default function Map() {
                   </LayersControl.Overlay>
                 </LayersControl>
                 {/* Legend Card */}
-                <div
-                  style={{
-                    position: 'absolute',
-                    bottom: '10px',
-                    left: '10px',
-                    zIndex: 1000 // Ensures the legend is above the map
-                  }}
-                >
+                <div style={{
+                  position: 'absolute',
+                  bottom: '10px',
+                  left: '10px',
+                  zIndex: 1000, // Ensures the legend is above the map
+                }}>
                   <Card
                     title="Legend"
                     bordered={true}
                     style={{
                       width: 200,
-                      opacity: 0.9 // Makes the card semi-transparent
+                      opacity: 0.9, // Makes the card semi-transparent
                     }}
                   >
-                    {fetchedDevices.map((device) => (
+                    {fetchedDevices.map(device =>
                       <div
                         style={{
-                          display: 'flex', // Aligns items horizontally
-                          alignItems: 'center', // Vertically aligns items
-                          gap: '8px' // Adds spacing between the logo and name
+                          display: "flex", // Aligns items horizontally
+                          alignItems: "center", // Vertically aligns items
+                          gap: "8px", // Adds spacing between the logo and name
                         }}
                       >
                         {/* Logo */}
                         <div
                           style={{
-                            position: 'relative',
+                            position: "relative",
                             backgroundColor: colorSchemes[device.id - 1].innerColor, // Dynamic value
-                            width: '30px',
-                            height: '30px',
-                            borderRadius: '50%',
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            color: 'white',
-                            fontSize: '12px',
-                            fontWeight: 'bold',
-                            border: `4px solid ${colorSchemes[device.id - 1].borderColorAbsent}` // Dynamic value
+                            width: "30px",
+                            height: "30px",
+                            borderRadius: "50%",
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "center",
+                            color: "white",
+                            fontSize: "12px",
+                            fontWeight: "bold",
+                            border: `4px solid ${colorSchemes[device.id - 1].borderColorAbsent}`, // Dynamic value
                           }}
                         >
                           {device.id}
@@ -468,15 +412,16 @@ export default function Map() {
                         {/* Device Name */}
                         <span
                           style={{
-                            fontSize: '12px', // Match the text size with the logo
-                            fontWeight: 'normal',
-                            color: '#333' // Optional: Define text color
+                            fontSize: "12px", // Match the text size with the logo
+                            fontWeight: "normal",
+                            color: "#333", // Optional: Define text color
                           }}
                         >
                           {device.name}
                         </span>
                       </div>
-                    ))}
+
+                    )}
                   </Card>
                 </div>
               </MapContainer>
@@ -499,17 +444,16 @@ export default function Map() {
                           />
                         </Col>
                         <Col span={18}>
-                        {/* <Descriptions title="User Info" items={items} /> */}
-                        
-                        <div style={{padding:10}}>
+
+                          <div style={{ padding: 10 }}>
                             <p>Speed:  m/s</p>
                             <p>Timestamp: </p>
                             <p>Device Id:</p>
 
-                        </div>
+                          </div>
                         </Col>
                       </Row>
-                    </Card> 
+                    </Card>
                   </>
                 ))}
               </Space>
