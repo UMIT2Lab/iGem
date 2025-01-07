@@ -1,7 +1,7 @@
 {
   "name": "iGem",
-  "version": "0.0.1",
-  "description": "iOS Geographical Evidence Matching",
+  "version": "0.0.2",
+  "description": "iOS Geolocation Evidence Matching",
   "main": "./out/main/index.js",
   "author": "Akif Ozer",
   "homepage": "https://electron-vite.org",

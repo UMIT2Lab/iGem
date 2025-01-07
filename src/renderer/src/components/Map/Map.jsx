@@ -280,7 +280,8 @@ export default function Map() {
           // Update the `fetchedDevices` array by matching `deviceId`
           setFetchedDevices((prevDevices) => {
             const updatedDevices = prevDevices.map((device) => {
-              if (device.id === currentLocation.deviceId) {
+              console.log(currentLocation)
+              if (device.id === currentLocation.mapDeviceId) {
                 console.log("Updating Device:", device.name);
                 if (currentLocation.hasKtxFile) {
                   deviceKTXImageLoad(currentLocation.ktxObj.filepath, device.id)
