@@ -1,14 +1,17 @@
+const { app } = require('electron');
+
 const path = require('path')
+
 const knex = require('knex')({
   client: 'sqlite3',
   connection: {
-    filename: path.join('./db', 'devices.db') // Path to the local SQLite database file
+    filename: path.join(app.getPath('userData'), 'devices.db') // Path to the local SQLite database file
   },
   useNullAsDefault: true
 })
 
 // Log the database path for debugging
-console.log('Database path:', path.join('./db', 'devices.db'))
+console.log('Database path:', path.join(app.getPath('userData'), 'devices.db'))
 
 // Create the 'devices' table if it doesn't exist
 knex.schema

@@ -10,7 +10,9 @@
       "src/main/**/*",
       "src/preload/**/*",
       "src/renderer/**/*",
-      "out/**/*"
+      "out/**/*",
+      "resources/*",
+      "db/*"
     ]
   },
   "scripts": {
