@@ -1,9 +1,9 @@
 {
-  "name": "igem",
-  "version": "1.0.0",
-  "description": "An Electron application with React",
+  "name": "iGem",
+  "version": "0.0.1",
+  "description": "iOS Geographical Evidence Matching",
   "main": "./out/main/index.js",
-  "author": "example.com",
+  "author": "Akif Ozer",
   "homepage": "https://electron-vite.org",
   "build": {
     "files": [
