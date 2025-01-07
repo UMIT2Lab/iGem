@@ -27,7 +27,7 @@ import { MapContainer, TileLayer, Popup, LayersControl, LayerGroup } from 'react
 import DeviceSelectionModal from '../Modals/DeviceSelectionModal'
 import colorSchemes from './ColorSchemes'
 import 'leaflet/dist/leaflet.css'
-
+import logo from '../../assets/logo.png'
 const { Meta } = Card
 const { Header } = Layout
 const { ipcRenderer } = window.require('electron') // Import ipcRenderer for database fetching
@@ -334,11 +334,13 @@ export default function Map() {
           style={{
             height: '64px',
             width: '100%',
-            backgroundColor: '#993955',
+            backgroundColor: '#a1c2e4',
             position: 'relative'
           }}
         >
           <Row gutter={[16, 16]} align="middle">
+          <Image src={logo} width={150} preview={false}/>
+
             <Col>
               <DatePicker showTime value={startDateTime} onChange={(date) => setStartDateTime(date)} placeholder="Start DateTime" />
             </Col>
@@ -476,7 +478,7 @@ export default function Map() {
                 </div>
               </MapContainer>
             </Col>
-            <Col span={6}>
+            <Col span={6} >
               <Space
                 direction="vertical"
                 style={{ display: 'flex', justifyContent: 'center', alignItems: 'stretch', padding: 30 }}
