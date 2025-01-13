@@ -369,7 +369,6 @@ ipcMain.handle('process-zip-file', async (event, { icon, zipFilePath, extractDir
 })
 
 ipcMain.handle('get-devices', async () => {
-  console.log('THIS HANDLE')
   try {
     const data = await knex('devices').select('*')
     return { success: true, data }

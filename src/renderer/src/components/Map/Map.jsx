@@ -12,7 +12,7 @@ import {
   Image,
   Card,
   Space,
-  Descriptions
+  message
 } from 'antd'
 import {
   PlayCircleOutlined,
@@ -48,6 +48,7 @@ export default function Map() {
   const [matchedLocations, setMatchedLocations] = useState([])
   const [pngPath, setPngPath] = useState(null) // Store path to PNG image
   const [devicePngArray, setDevicePngArray] = useState([]) // Store path to PNG image
+  const [messageApi, contextHolder] = message.useMessage();
 
   const [sliderValue, setSliderValue] = useState(0)
   const [fetchedDevices, setFetchedDevices] = useState([])
@@ -153,7 +154,6 @@ export default function Map() {
       // Fetch device information from the backend
       const devicesResponse = await ipcRenderer.invoke('get-devices')
       const devices = devicesResponse.data
-      console.log(devicesResponse)
       const allLocations = []
       const allKtxFiles = []
       const allAppUsage = []
@@ -256,6 +256,10 @@ export default function Map() {
         )
         .sort((a, b) => a.timestamp - b.timestamp)
       setFilteredLocations(filtered)
+      messageApi.open({
+        type: 'success',
+        content: `${filtered.length} data points found`,
+      });
     } else {
       setFilteredLocations([])
     }
@@ -330,6 +334,8 @@ export default function Map() {
 
   return (
     <div>
+            {contextHolder}
+
       <Layout style={{ height: '100vh' }}>
         <Header
           style={{
@@ -480,9 +486,10 @@ export default function Map() {
               </MapContainer>
             </Col>
             <Col span={6} >
+              <div style={{overflowY: 'auto', maxHeight: 'calc(100vh - 64px)'}}>
               <Space
                 direction="vertical"
-                style={{ display: 'flex', justifyContent: 'center', alignItems: 'stretch', padding: 30 }}
+                style={{ display: 'flex', justifyContent: 'center', alignItems: 'stretch', padding: 30, scroll:"auto" }}
               >
                 {fetchedDevices.map((device) => (
                   <>
@@ -537,7 +544,9 @@ export default function Map() {
                   </>
                 ))}
               </Space>
+              </div>
             </Col>
+            
           </Row>
 
           <div
@@ -587,8 +596,8 @@ export default function Map() {
             style={{ insetInlineEnd: 24 }}
             icon={<SettingOutlined />}
           >
-            <FloatButton icon={<ControlOutlined />} />
-            <FloatButton icon={<AppstoreAddOutlined />} onClick={handleFileModalOpen} />
+            <FloatButton icon={<ControlOutlined />} disabled={true} />
+            <FloatButton icon={<AppstoreAddOutlined />}  onClick={handleFileModalOpen} />
           </FloatButton.Group>
           <DeviceSelectionModal
             visible={isFileModalVisible}
