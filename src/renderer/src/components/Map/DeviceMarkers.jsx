@@ -38,7 +38,6 @@ const DeviceMarkers = (devices) => {
       borderColor: hasKtxFile ? scheme.borderColorPresent : scheme.borderColorAbsent
     }
   }
-  console.log(devices)
   return (
     <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
       {devices.map((device, index) => {

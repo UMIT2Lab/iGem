@@ -24,6 +24,7 @@ const DeviceSelectionModal = ({ visible, onClose }) => {
   }) // Form state for new device
   const [loading, setLoading] = useState(false)
   const [currentStep, setCurrentStep] = useState(0)
+  const [addedDeviceId, setAddedDeviceId] = useState(0)
 
   // Define the steps for the processing sequence
   const steps = [
@@ -42,16 +43,6 @@ const DeviceSelectionModal = ({ visible, onClose }) => {
   useEffect(() => {
     ipcRenderer.invoke('get-devices').then((res) => setDevices(res.data))
   }, [])
-
-  const handleIconChange = (icon, index) => {
-    if (index !== undefined) {
-      const updatedDevices = [...devices]
-      updatedDevices[index].icon = icon
-      setDevices(updatedDevices)
-    } else {
-      setNewDevice({ ...newDevice, icon }) // Update icon in form view
-    }
-  }
 
   const handleFileChange = (file, index) => {
     if (file.type.includes('zip')) {
@@ -126,6 +117,7 @@ const DeviceSelectionModal = ({ visible, onClose }) => {
         created_at: Date.now()
       })
       if (!addDeviceResult.success) throw new Error('Failed to save device info')
+      setAddedDeviceId(addDeviceResult.id)
       setCurrentStep(1) // Move to the next step
 
       // Step 2: Extract Files
@@ -183,7 +175,13 @@ const DeviceSelectionModal = ({ visible, onClose }) => {
   const handleConfirm = async () => {
     onClose()
   }
+  const handleConfirmOnCancel = async () => {
+    console.log(addedDeviceId)
+    await removeDevice(addedDeviceId)
 
+    setLoading(false)
+    onClose()
+  }
   return (
     <Modal
       title={isAddingDevice ? 'Add New Device' : 'Device List'}
@@ -191,6 +189,13 @@ const DeviceSelectionModal = ({ visible, onClose }) => {
       onCancel={onClose}
       onOk={isAddingDevice ? handleConfirmNewDevice : handleConfirm}
       okText={isAddingDevice ? 'Add Device' : 'Confirm'}
+      // Add a customized button to the footer
+      footer={loading ? null :
+        [
+        <Button key="submit" type="primary" onClick={isAddingDevice ? handleConfirmNewDevice : handleConfirm}>
+          {isAddingDevice ? loading ? 'Cancel' : 'Add New Device' : 'Close'}
+        </Button>,
+      ]}
     >
       {loading ? (
         <div style={{ textAlign: 'center', padding: '20px' }}>
