@@ -13,10 +13,7 @@
       "out/**/*",
       "resources/*",
       "db/*"
-    ],
-    "win": {
-      "icon": "build/icon.png"
-    }
+    ]
   },
   "scripts": {
     "format": "prettier --write .",
