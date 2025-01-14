@@ -190,8 +190,9 @@ const DeviceSelectionModal = ({ visible, onClose }) => {
       onOk={isAddingDevice ? handleConfirmNewDevice : handleConfirm}
       okText={isAddingDevice ? 'Add Device' : 'Confirm'}
       // Add a customized button to the footer
-      footer={[
-        <Button key="submit" type="primary" onClick={isAddingDevice ? loading ? handleConfirmOnCancel : handleConfirmNewDevice : handleConfirm}>
+      footer={loading ? null :
+        [
+        <Button key="submit" type="primary" onClick={isAddingDevice ? handleConfirmNewDevice : handleConfirm}>
           {isAddingDevice ? loading ? 'Cancel' : 'Add New Device' : 'Close'}
         </Button>,
       ]}
