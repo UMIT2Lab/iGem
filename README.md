@@ -1,16 +1,16 @@
 <p align="center">
-  <img src="https://github.com/ozaksen/iGem/blob/main/resources/icon.png" alt="iGem Logo" width="200">
+  <img src="https://github.com/UMIT2Lab/iGem/blob/main/resources/icon.png" alt="iGem Logo" width="200">
 </p>
 
 <p align="center">
-  <a href="https://github.com/ozaksen/iGem/releases">
-    <img src="https://img.shields.io/github/v/release/ozaksen/iGem" alt="Release Version">
+  <a href="https://github.com/UMIT2Lab/iGem/releases">
+    <img src="https://img.shields.io/github/v/release/UMIT2Lab/iGem" alt="Release Version">
   </a>
-  <a href="https://github.com/ozaksen/iGem">
-    <img src="https://img.shields.io/github/license/ozaksen/iGem" alt="License">
+  <a href="https://github.com/UMIT2Lab/iGem">
+    <img src="https://img.shields.io/github/license/UMIT2Lab/iGem" alt="License">
   </a>
-  <a href="https://github.com/ozaksen/iGem/stargazers">
-    <img src="https://img.shields.io/github/stars/ozaksen/iGem" alt="Stars">
+  <a href="https://github.com/UMIT2Lab/iGem/stargazers">
+    <img src="https://img.shields.io/github/stars/UMIT2Lab/iGem" alt="Stars">
   </a>
 </p>
 
@@ -27,14 +27,14 @@ iGem is a forensic tool designed to assist investigators in matching geolocation
 ## Installation
 
 ### Option 1: Download Release
-1. Visit the [iGem GitHub Releases](https://github.com/ozaksen/iGem/releases) page.
+1. Visit the [iGem GitHub Releases](https://github.com/UMIT2Lab/iGem/releases) page.
 2. Download the latest `.exe` file for **v1.0.0**.
 3. Run the installer to start using iGem.
 
 ### Option 2: Clone the Repository
 1. Clone the repository:
    ```bash
-   git clone https://github.com/your-repo/igem.git
+   git clone https://github.com/UMIT2Lab/iGem.git
    cd igem
    ```
 2. Install dependencies:
