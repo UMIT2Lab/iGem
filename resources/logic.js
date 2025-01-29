@@ -35,8 +35,8 @@ ipcMain.handle('convert-ktx-to-png', async (event, ktxFilePath) => {
 // IPC handler to trigger the extraction and database insertion
 ipcMain.handle('extract-knowledge-db', async (event, zipFilePath, extractDir, deviceId) => {
   try {
-    const targetFilePathInZip =
-      'filesystem1/private/var/mobile/Library/CoreDuet/Knowledge/knowledgeC.db'
+    const targetFilePathInZip = /.*\/private\/var\/mobile\/Library\/CoreDuet\/Knowledge\/knowledgeC\.db/
+
 
     // Create the extraction directory if it doesn't exist
     if (!fs.existsSync(extractDir)) {
@@ -171,13 +171,15 @@ const extractFilesAndSaveToDB = async (
   fs.mkdirSync(ktxFolder, { recursive: true }) // Ensure ktx_files folder exists
 
   return new Promise((resolve, reject) => {
-    yauzl.open(zipFilePath, { lazyEntries: true }, (err, zipFile) => {
+    yauzl.open(zipFilePath, { decodeStrings: false, lazyEntries: true }, (err, zipFile) => {
       if (err) return reject(err)
 
       zipFile.readEntry()
       zipFile.on('entry', (entry) => {
-        if (regexPattern.test(entry.fileName)) {
-          const filename = path.basename(entry.fileName)
+        const decodedFileName = entry.fileName.toString("utf8");
+
+        if (regexPattern.test(decodedFileName)) {
+          const filename = path.basename(decodedFileName)
           const filepath = path.join(ktxFolder, filename)
 
           zipFile.openReadStream(entry, (err, readStream) => {
@@ -256,14 +258,15 @@ ipcMain.handle('get-device-locations', async (event, deviceId) => {
 
 async function extractFileFromZip(zipFilePath, targetFilePathInZip, outputDir) {
   return new Promise((resolve, reject) => {
-    yauzl.open(zipFilePath, { lazyEntries: true }, (err, zipfile) => {
+    yauzl.open(zipFilePath, { decodeStrings: false, lazyEntries: true }, (err, zipfile) => {
       if (err) return reject(err)
 
       zipfile.readEntry()
       zipfile.on('entry', (entry) => {
-        if (entry.fileName === targetFilePathInZip) {
-          console.log(entry.fileName)
-          const extractedFilePath = path.join(outputDir, path.basename(targetFilePathInZip))
+        const decodedFileName = entry.fileName.toString("utf8");
+
+        if (targetFilePathInZip.test(decodedFileName)) {
+          const extractedFilePath = path.join(outputDir, path.basename(decodedFileName))
           zipfile.openReadStream(entry, (err, readStream) => {
             if (err) return reject(err)
 
@@ -306,10 +309,10 @@ function chunkArray(array, size) {
 
 ipcMain.handle('process-zip-file', async (event, { icon, zipFilePath, extractDir, deviceId }) => {
   try {
-    const targetFilePathInZip =
-      'filesystem1/private/var/mobile/Library/Caches/com.apple.routined/Cache.sqlite'
-    const target2FilePathInZip =
-      'filesystem1/private/var/mobile/Library/Caches/com.apple.routined/Cache.sqlite-wal'
+    const targetFilePathInZip = /.*\/private\/var\/mobile\/Library\/Caches\/com\.apple\.routined\/Cache\.sqlite/; // Regex to match the file
+
+    const target2FilePathInZip = /.*\/private\/var\/mobile\/Library\/Caches\/com\.apple\.routined\/Cache\.sqlite(-wal)?/; // Regex to match both Cache.sqlite and Cache.sqlite-wal
+
 
     // Create the extraction directory if it doesn't exist
     if (!fs.existsSync(extractDir)) {
