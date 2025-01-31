@@ -72,6 +72,10 @@ For questions or support, please contact:
 - **Xiao Hu**: [hu961@purdue.edu](mailto:hu961@purdue.edu)
 - **Dr. Umit Karabiyik**: [umit@purdue.edu](mailto:umit@purdue.edu)
 
+## Funding
+
+This tool is developed under the project funded by BJA with the Award # 15PBJA-21-GK-03996-INTE.
+
 ---
 
 Thank you for using iGem! We hope it helps streamline your forensic investigations.
