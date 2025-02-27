@@ -18,10 +18,10 @@ const DeviceSelectionModal = ({ visible, onClose }) => {
   const [isAddingDevice, setIsAddingDevice] = useState(false) // Track if we're in form view
   const [newDevice, setNewDevice] = useState({
     name: '',
-    imagePath: '',
+    imagePaths: [],
     icon: null,
     created_at: null
-  }) // Form state for new device
+  });
   const [loading, setLoading] = useState(false)
   const [currentStep, setCurrentStep] = useState(0)
   const [addedDeviceId, setAddedDeviceId] = useState(0)
@@ -44,22 +44,20 @@ const DeviceSelectionModal = ({ visible, onClose }) => {
     ipcRenderer.invoke('get-devices').then((res) => setDevices(res.data))
   }, [])
 
-  const handleFileChange = (file, index) => {
+  const handleFileChange = (file) => {
     if (file.type.includes('zip')) {
-      const filePath = file.path
-      if (index !== undefined) {
-        const updatedDevices = [...devices]
-        updatedDevices[index].zipFilePath = filePath
-        setDevices(updatedDevices)
-      } else {
-        setNewDevice({ ...newDevice, imagePath: filePath }) // Update image path in form view
-      }
-      message.success('File selected!')
+      const filePath = file.path;
+      setNewDevice((prevDevice) => ({
+        ...prevDevice,
+        imagePaths: [...prevDevice.imagePaths, filePath],
+      }));
+      console.log(newDevice)
+      message.success('File selected!');
     } else {
-      message.error('Please select a valid ZIP file.')
+      message.error('Please select a valid ZIP file.');
     }
-    return false
-  }
+    return false; // Prevent automatic upload
+  };
 
   // Define the removeDevice function
   const removeDevice = async (deviceId) => {
@@ -78,20 +76,21 @@ const DeviceSelectionModal = ({ visible, onClose }) => {
     }
   }
 
-  const handleFileRemove = (index) => {
-    if (index !== undefined) {
-      const updatedDevices = [...devices]
-      updatedDevices[index].zipFilePath = null
-      setDevices(updatedDevices)
-    } else {
-      setNewDevice({ ...newDevice, imagePath: '' })
-    }
-    message.success('File removed.')
-  }
+  const handleFileRemove = (file) => {
+    setNewDevice((prevDevice) => ({
+      ...prevDevice,
+      imagePaths: prevDevice.imagePaths.filter((path) => path !== file.path),
+    }));
+    message.success('File removed.');
+  };
 
   const addDevice = () => {
     setIsAddingDevice(true) // Switch to form view
-    setNewDevice({ name: '', imagePath: '', icon: null }) // Reset form fields
+    setNewDevice({ 
+      name: '', 
+      imagePaths: [], // Change from imagePath to imagePaths
+      icon: null 
+    }) // Reset form fields
   }
 
   const handleBackToDeviceList = () => {
@@ -102,7 +101,7 @@ const DeviceSelectionModal = ({ visible, onClose }) => {
     return new Promise((resolve) => setTimeout(resolve, ms))
   }
   const handleConfirmNewDevice = async () => {
-    if (!newDevice.name || !newDevice.imagePath) {
+    if (!newDevice.name || !newDevice.imagePaths.length === 0) {
       message.error('Please fill out all fields.')
       return
     }
@@ -192,10 +191,10 @@ const DeviceSelectionModal = ({ visible, onClose }) => {
       // Add a customized button to the footer
       footer={loading ? null :
         [
-        <Button key="submit" type="primary" onClick={isAddingDevice ? handleConfirmNewDevice : handleConfirm}>
-          {isAddingDevice ? loading ? 'Cancel' : 'Add New Device' : 'Close'}
-        </Button>,
-      ]}
+          <Button key="submit" type="primary" onClick={isAddingDevice ? handleConfirmNewDevice : handleConfirm}>
+            {isAddingDevice ? loading ? 'Cancel' : 'Add New Device' : 'Close'}
+          </Button>,
+        ]}
     >
       {loading ? (
         <div style={{ textAlign: 'center', padding: '20px' }}>
@@ -228,14 +227,15 @@ const DeviceSelectionModal = ({ visible, onClose }) => {
             </Form.Item>
             <Form.Item label="Select Image File">
               <Upload
+                multiple
                 beforeUpload={(file) => handleFileChange(file)}
-                onRemove={() => handleFileRemove()}
+                onRemove={(file) => handleFileRemove(file)}
                 showUploadList={{ showRemoveIcon: true }}
-                fileList={
-                  newDevice.imagePath
-                    ? [{ uid: '-1', name: newDevice.imagePath.split('/').pop(), status: 'done' }]
-                    : []
-                }
+                fileList={newDevice?.imagePaths?.map((filePath, index) => ({
+                  uid: index.toString(),
+                  name: filePath.split('/').pop(),
+                  status: 'done',
+                })) || []}
               >
                 <Button icon={<UploadOutlined />}>Select File</Button>
               </Upload>

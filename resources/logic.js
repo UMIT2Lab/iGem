@@ -32,24 +32,67 @@ ipcMain.handle('convert-ktx-to-png', async (event, ktxFilePath) => {
   })
 })
 
-// IPC handler to trigger the extraction and database insertion
 ipcMain.handle('extract-knowledge-db', async (event, zipFilePath, extractDir, deviceId) => {
   try {
-    const targetFilePathInZip = /.*\/private\/var\/mobile\/Library\/CoreDuet\/Knowledge\/knowledgeC\.db/
-
+    const targetFilePathInZip = /.*\/private\/var\/mobile\/Library\/CoreDuet\/Knowledge\/knowledgeC\.db/;
+    
+    // Get the device to access all image paths
+    const device = await knex('devices').where('id', deviceId.id).first();
+    let imagePaths = [];
+    
+    // Parse the stored imagePaths if available
+    if (device.imagePaths) {
+      try {
+        imagePaths = JSON.parse(device.imagePaths);
+      } catch (e) {
+        console.error('Error parsing imagePaths:', e);
+        if (device.imagePath) {
+          imagePaths = [device.imagePath];
+        }
+      }
+    } else if (device.imagePath) {
+      imagePaths = [device.imagePath];
+    }
+    
+    // If zipFilePath is provided directly, prioritize that
+    if (zipFilePath && !imagePaths.includes(zipFilePath)) {
+      imagePaths.unshift(zipFilePath);
+    }
+    
+    if (imagePaths.length === 0) {
+      throw new Error('No image paths found for processing');
+    }
 
     // Create the extraction directory if it doesn't exist
     if (!fs.existsSync(extractDir)) {
-      fs.mkdirSync(extractDir, { recursive: true })
+      fs.mkdirSync(extractDir, { recursive: true });
+    }
+    
+    // Try each zip file until we find the target files
+    let extractedDbPath = null;
+    let successfulZipPath = null;
+    
+    for (const zipPath of imagePaths) {
+      try {
+        console.log(`Trying to extract knowledge DB from: ${zipPath}`);
+        extractedDbPath = await extractFileFromZip(zipPath, targetFilePathInZip, extractDir);
+        successfulZipPath = zipPath;
+        console.log(`Successfully extracted knowledge DB from: ${zipPath}`);
+        break; // Exit the loop if extraction is successful
+      } catch (zipError) {
+        console.log(`Could not extract knowledge DB from ${zipPath}: ${zipError.message}`);
+        // Continue to the next zip file
+      }
+    }
+    
+    if (!extractedDbPath) {
+      throw new Error('Could not find the knowledge database in any of the provided zip files');
     }
 
-    // Extract Cache.sqlite
-    const extractedDbPath = await extractFileFromZip(zipFilePath, targetFilePathInZip, extractDir)
-
-    // Open the extracted SQLite database and read data from ZRTCLLOCATIONMO
+    // Open the extracted SQLite database
     const cacheDb = new sqlite3.Database(extractedDbPath, sqlite3.OPEN_READONLY, (err) => {
-      if (err) throw new Error(`Could not open Cache.sqlite: ${err.message}`)
-    })
+      if (err) throw new Error(`Could not open knowledgeC.db: ${err.message}`);
+    });
 
     const focusQuery = `
 SELECT
@@ -221,19 +264,73 @@ const extractFilesAndSaveToDB = async (
   })
 }
 
-// IPC handler to trigger the extraction and database insertion
 ipcMain.handle('extract-matching-files', async (event, zipFilePath, extractDir, deviceId) => {
-  console.log(extractDir)
+  console.log(extractDir);
   const matchingPathPattern =
-    '*/private/var/mobile/Containers/Data/Application/*/Library/SplashBoard/Snapshots/*/*.ktx'
+    '*/private/var/mobile/Containers/Data/Application/*/Library/SplashBoard/Snapshots/*/*.ktx';
+  
   try {
-    await extractFilesAndSaveToDB(zipFilePath, extractDir, deviceId, matchingPathPattern)
-    return { success: true, message: 'Extraction and database insertion complete.' }
+    // Get the device to access all image paths
+    const device = await knex('devices').where('id', deviceId.id).first();
+    let imagePaths = [];
+    
+    // Parse the stored imagePaths if available
+    if (device.imagePaths) {
+      try {
+        imagePaths = JSON.parse(device.imagePaths);
+      } catch (e) {
+        console.error('Error parsing imagePaths:', e);
+        if (device.imagePath) {
+          imagePaths = [device.imagePath];
+        }
+      }
+    } else if (device.imagePath) {
+      imagePaths = [device.imagePath];
+    }
+    
+    // If zipFilePath is provided directly, prioritize that
+    if (zipFilePath && !imagePaths.includes(zipFilePath)) {
+      imagePaths.unshift(zipFilePath);
+    }
+    
+    if (imagePaths.length === 0) {
+      throw new Error('No image paths found for processing');
+    }
+    
+    // Try each zip file and extract matching files
+    let successCount = 0;
+    let errors = [];
+    
+    for (const zipPath of imagePaths) {
+      try {
+        console.log(`Extracting KTX files from: ${zipPath}`);
+        await extractFilesAndSaveToDB(zipPath, extractDir, deviceId, matchingPathPattern);
+        successCount++;
+      } catch (zipError) {
+        console.log(`Error extracting from ${zipPath}: ${zipError.message}`);
+        errors.push(`${zipPath}: ${zipError.message}`);
+      }
+    }
+    
+    if (successCount > 0) {
+      return { 
+        success: true, 
+        message: `Extracted KTX files from ${successCount} archives.`,
+        errors: errors.length > 0 ? errors : undefined
+      };
+    } else {
+      return { 
+        success: false, 
+        message: 'Failed to extract KTX files from any archive.',
+        errors
+      };
+    }
   } catch (error) {
-    console.error('Extraction or database insertion error:', error)
-    return { success: false, message: error.message }
+    console.error('Extraction or database insertion error:', error);
+    return { success: false, message: error.message };
   }
-})
+});
+
 // Handler to retrieve device locations from the database
 ipcMain.handle('get-device-locations', async (event, deviceId) => {
   try {
@@ -309,34 +406,78 @@ function chunkArray(array, size) {
 
 ipcMain.handle('process-zip-file', async (event, { icon, zipFilePath, extractDir, deviceId }) => {
   try {
-    const targetFilePathInZip = /.*\/private\/var\/mobile\/Library\/Caches\/com\.apple\.routined\/Cache\.sqlite/; // Regex to match the file
+    // Get the device to access all image paths
+    const device = await knex('devices').where('id', deviceId.id).first();
+    let imagePaths = [];
+    
+    // Parse the stored imagePaths if available
+    if (device.imagePaths) {
+      try {
+        imagePaths = JSON.parse(device.imagePaths);
+      } catch (e) {
+        console.error('Error parsing imagePaths:', e);
+        if (device.imagePath) {
+          imagePaths = [device.imagePath];
+        }
+      }
+    } else if (device.imagePath) {
+      imagePaths = [device.imagePath];
+    }
+    
+    // If zipFilePath is provided directly, prioritize that
+    if (zipFilePath && !imagePaths.includes(zipFilePath)) {
+      imagePaths.unshift(zipFilePath);
+    }
+    
+    if (imagePaths.length === 0) {
+      throw new Error('No image paths found for processing');
+    }
 
-    const target2FilePathInZip = /.*\/private\/var\/mobile\/Library\/Caches\/com\.apple\.routined\/Cache\.sqlite(-wal)?/; // Regex to match both Cache.sqlite and Cache.sqlite-wal
-
+    const targetFilePathInZip = /.*\/private\/var\/mobile\/Library\/Caches\/com\.apple\.routined\/Cache\.sqlite/;
+    const target2FilePathInZip = /.*\/private\/var\/mobile\/Library\/Caches\/com\.apple\.routined\/Cache\.sqlite(-wal)?/;
 
     // Create the extraction directory if it doesn't exist
     if (!fs.existsSync(extractDir)) {
-      fs.mkdirSync(extractDir, { recursive: true })
+      fs.mkdirSync(extractDir, { recursive: true });
     }
-
-    // Extract Cache.sqlite
-    const extractedDbPath = await extractFileFromZip(zipFilePath, targetFilePathInZip, extractDir)
-    const extractedDbPath2 = await extractFileFromZip(zipFilePath, target2FilePathInZip, extractDir)
+    
+    // Try each zip file until we find the target files
+    let extractedDbPath = null;
+    let extractedDbPath2 = null;
+    let successfulZipPath = null;
+    
+    for (const zipPath of imagePaths) {
+      try {
+        console.log(`Trying to extract from: ${zipPath}`);
+        extractedDbPath = await extractFileFromZip(zipPath, targetFilePathInZip, extractDir);
+        extractedDbPath2 = await extractFileFromZip(zipPath, target2FilePathInZip, extractDir);
+        successfulZipPath = zipPath;
+        console.log(`Successfully extracted from: ${zipPath}`);
+        break; // Exit the loop if extraction is successful
+      } catch (zipError) {
+        console.log(`Could not extract target files from ${zipPath}: ${zipError.message}`);
+        // Continue to the next zip file
+      }
+    }
+    
+    if (!extractedDbPath) {
+      throw new Error('Could not find the target file in any of the provided zip files');
+    }
 
     // Open the extracted SQLite database and read data from ZRTCLLOCATIONMO
     const cacheDb = new sqlite3.Database(extractedDbPath, sqlite3.OPEN_READONLY, (err) => {
-      if (err) throw new Error(`Could not open Cache.sqlite: ${err.message}`)
-    })
+      if (err) throw new Error(`Could not open Cache.sqlite: ${err.message}`);
+    });
 
     const query = `SELECT ZLATITUDE AS latitude, ZLONGITUDE AS longitude, ZSPEED AS speed, 
                       ZVERTICALACCURACY AS verticalAccuracy, ZHORIZONTALACCURACY AS horizontalAccuracy, 
-                      ZTIMESTAMP AS timestamp FROM ZRTCLLOCATIONMO`
+                      ZTIMESTAMP AS timestamp FROM ZRTCLLOCATIONMO`;
 
     return new Promise((resolve, reject) => {
       cacheDb.all(query, async (err, rows) => {
         if (err) {
-          console.error('Error querying ZRTCLLOCATIONMO:', err.message)
-          return reject({ success: false, error: err.message })
+          console.error('Error querying ZRTCLLOCATIONMO:', err.message);
+          return reject({ success: false, error: err.message });
         }
 
         // Process each row and adjust the timestamp
@@ -348,28 +489,33 @@ ipcMain.handle('process-zip-file', async (event, { icon, zipFilePath, extractDir
           verticalAccuracy: row.verticalAccuracy,
           horizontalAccuracy: row.horizontalAccuracy,
           timestamp: new Date((row.timestamp + IOS_TO_UNIX_EPOCH_OFFSET) * 1000) // Convert iOS time to Unix time
-        }))
+        }));
 
         // Insert in batches to avoid "too many terms in compound SELECT"
-        const chunks = chunkArray(locationData, 100) // Adjust the batch size as needed
+        const chunks = chunkArray(locationData, 100); // Adjust the batch size as needed
         try {
           for (const chunk of chunks) {
-            await knex('device_locations').insert(chunk)
+            await knex('device_locations').insert(chunk);
           }
-          resolve({ success: true, message: 'Data successfully transferred to device_locations' })
+          resolve({ 
+            success: true, 
+            message: 'Data successfully transferred to device_locations',
+            sourceZip: successfulZipPath
+          });
         } catch (insertError) {
-          console.error('Error inserting into device_locations:', insertError.message)
-          reject({ success: false, error: insertError.message })
+          console.error('Error inserting into device_locations:', insertError.message);
+          reject({ success: false, error: insertError.message });
         } finally {
-          cacheDb.close()
+          cacheDb.close();
         }
-      })
-    })
+      });
+    });
   } catch (error) {
-    console.error('Error processing ZIP file:', error)
-    return { success: false, error: error instanceof Error ? error.message : 'Unknown error' }
+    console.error('Error processing ZIP file:', error);
+    return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
   }
-})
+});
+
 
 ipcMain.handle('get-devices', async () => {
   try {
@@ -395,11 +541,15 @@ ipcMain.handle('get-app-usage', async (event, deviceId) => {
 
 ipcMain.handle('add-device', async (event, device) => {
   try {
+    // Store the imagePaths for later use
+    const imagePaths = device.imagePaths || [];
+    
     const [id] = await knex('devices')
       .insert({
         name: device.name,
-        imagePath: device.imagePath,
-        created_at: device.created_at
+        imagePath: imagePaths.length > 0 ? imagePaths[0] : null, // Store the first path in the imagePath column for backward compatibility
+        created_at: device.created_at,
+        imagePaths: JSON.stringify(imagePaths) // Store all paths as a JSON string
       })
       .returning('id') // Use 'returning' to get the inserted ID
 
