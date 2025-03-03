@@ -21,9 +21,19 @@ knex.schema
       return knex.schema.createTable('devices', (table) => {
         table.increments('id').primary()
         table.string('name').notNullable()
-        table.string('imagePath').notNullable() // Store path to the ZIP file
+        table.string('imagePath') // Store path to the ZIP file (can be null now)
+        table.text('imagePaths') // Store JSON string of multiple paths
         table.timestamp('created_at').defaultTo(knex.fn.now()) // Record creation timestamp
       })
+    } else {
+      // Check if the imagePaths column exists, and add it if it doesn't
+      return knex.schema.hasColumn('devices', 'imagePaths').then((hasColumn) => {
+        if (!hasColumn) {
+          return knex.schema.table('devices', (table) => {
+            table.text('imagePaths')
+          });
+        }
+      });
     }
   })
   .then(() => {
@@ -32,7 +42,6 @@ knex.schema
   .catch((error) => {
     console.error('Error setting up database:', error)
   })
-
 // Create the 'device_locations' table if it doesn't exist
 knex.schema
   .hasTable('device_locations')
