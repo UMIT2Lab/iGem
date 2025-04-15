@@ -1,21 +1,25 @@
 import React, { useState, useEffect } from 'react'
-import { Modal, Card, Upload, Button, Select, Space, message, Input, Form, Steps, Spin } from 'antd'
-import {
-  UploadOutlined,
-  PlusOutlined,
-  CloseOutlined,
-  ArrowLeftOutlined,
-  LoadingOutlined
-} from '@ant-design/icons'
+import { Modal, Button, message } from 'antd'
+import DeviceListView from './DeviceListView'
+import AddDeviceFormView from './AddDeviceFormView'
+import ProcessingStepsView from './ProcessingStepsView'
 
-const { Option } = Select
 const { ipcRenderer } = window.require('electron')
 const fs = window.require('fs')
 const path = window.require('path')
 
+// Define processing steps that will be consistent across the application
+const processingSteps = [
+  { title: 'Save Device Info', description: 'Saving device metadata' },
+  { title: 'Extract Location Data', description: 'Extracting location information' },
+  { title: 'Extract App Usage', description: 'Processing app usage data' },
+  { title: 'Extract Screenshots', description: 'Processing device screenshots' },
+  { title: 'Complete', description: 'Processing complete!' }
+];
+
 const DeviceSelectionModal = ({ visible, onClose }) => {
   const [devices, setDevices] = useState([])
-  const [isAddingDevice, setIsAddingDevice] = useState(false) // Track if we're in form view
+  const [isAddingDevice, setIsAddingDevice] = useState(false)
   const [newDevice, setNewDevice] = useState({
     name: '',
     imagePaths: [],
@@ -25,19 +29,6 @@ const DeviceSelectionModal = ({ visible, onClose }) => {
   const [loading, setLoading] = useState(false)
   const [currentStep, setCurrentStep] = useState(0)
   const [addedDeviceId, setAddedDeviceId] = useState(0)
-
-  // Define the steps for the processing sequence
-  const steps = [
-    { title: 'Save Device Info', description: 'Saving device information to the database', key: 1 },
-    { title: 'GPS Locations', description: 'Extracting GPS Locations into the DB', key: 2 },
-    { title: 'KTX Files', description: 'Extracting KTX Files and Converting into images', key: 3 },
-    {
-      title: 'App Usage',
-      description: 'Extracting app usage information from KnowledgeC database',
-      key: 4
-    },
-    { title: 'Finish', description: '', key: 5 }
-  ]
 
   // Load saved devices from the database on component mount
   useEffect(() => {
@@ -62,10 +53,10 @@ const DeviceSelectionModal = ({ visible, onClose }) => {
   // Define the removeDevice function
   const removeDevice = async (deviceId) => {
     try {
-      const response = await ipcRenderer.invoke('remove-device', deviceId) // Call the IPC handler
+      const response = await ipcRenderer.invoke('remove-device', deviceId)
       if (response.success) {
         message.success('Device removed successfully!')
-        setDevices(devices.filter((device) => device.id !== deviceId)) // Update local device list
+        setDevices(devices.filter((device) => device.id !== deviceId))
       } else {
         message.error('Failed to remove device')
         console.error('Error:', response.error)
@@ -85,39 +76,40 @@ const DeviceSelectionModal = ({ visible, onClose }) => {
   };
 
   const addDevice = () => {
-    setIsAddingDevice(true) // Switch to form view
-    setNewDevice({ 
-      name: '', 
-      imagePaths: [], // Change from imagePath to imagePaths
-      icon: null 
-    }) // Reset form fields
+    setIsAddingDevice(true)
+    setNewDevice({
+      name: '',
+      imagePaths: [],
+      icon: null
+    })
   }
 
   const handleBackToDeviceList = () => {
-    setIsAddingDevice(false) // Go back to the device list view
+    setIsAddingDevice(false)
   }
 
   function sleep(ms) {
     return new Promise((resolve) => setTimeout(resolve, ms))
   }
+  
   const handleConfirmNewDevice = async () => {
     if (!newDevice.name || !newDevice.imagePaths.length === 0) {
       message.error('Please fill out all fields.')
       return
     }
 
-    setLoading(true) // Show loading spinner
-    setCurrentStep(0) // Start from the first step
+    setLoading(true)
+    setCurrentStep(0)
 
     try {
-      // // Step 1: Save Device Info
+      // Step 1: Save Device Info
       const addDeviceResult = await ipcRenderer.invoke('add-device', {
         ...newDevice,
         created_at: Date.now()
       })
       if (!addDeviceResult.success) throw new Error('Failed to save device info')
       setAddedDeviceId(addDeviceResult.id)
-      setCurrentStep(1) // Move to the next step
+      setCurrentStep(1)
 
       // Step 2: Extract Files
       const extractDir = path.join(window.require('os').tmpdir(), `extracted-device-${Date.now()}`)
@@ -131,7 +123,8 @@ const DeviceSelectionModal = ({ visible, onClose }) => {
       })
       console.log(extractDir)
       if (!result.success) throw new Error('Failed to extract files')
-      setCurrentStep(2) // Move to the next step
+      setCurrentStep(2)
+      
       console.log(extractDir)
       const result2 = await ipcRenderer.invoke(
         'extract-matching-files',
@@ -145,7 +138,7 @@ const DeviceSelectionModal = ({ visible, onClose }) => {
         console.error('Extraction failed:', result2.message)
       }
 
-      setCurrentStep(3) // Move to the next step
+      setCurrentStep(3)
 
       // Step 3: Process Data
       const processResponse = await ipcRenderer.invoke(
@@ -156,17 +149,15 @@ const DeviceSelectionModal = ({ visible, onClose }) => {
       )
       console.log(processResponse)
 
-      setCurrentStep(4) // Move to the next step
+      setCurrentStep(4)
       await sleep(2 * 1000)
 
-      // message.success('New device added and processed successfully.');
-      // setDevices([...devices, { ...newDevice, id: saveResponse.deviceId, created_at: Date.now() }]); // Add the new device to the list
-      // setIsAddingDevice(false); // Return to device list view
     } catch (error) {
       message.error(error.message || 'Error processing device')
     } finally {
       ipcRenderer.invoke('get-devices').then((res) => setDevices(res.data))
-      setLoading(false) // Hide loading spinner
+      console.log('Devices:', devices)
+      setLoading(false)
       setIsAddingDevice(false)
     }
   }
@@ -174,13 +165,39 @@ const DeviceSelectionModal = ({ visible, onClose }) => {
   const handleConfirm = async () => {
     onClose()
   }
+  
   const handleConfirmOnCancel = async () => {
     console.log(addedDeviceId)
     await removeDevice(addedDeviceId)
-
     setLoading(false)
     onClose()
   }
+  
+  // Determine which content to render based on state
+  const renderModalContent = () => {
+    if (loading) {
+      return <ProcessingStepsView steps={processingSteps} currentStep={currentStep} />
+    } else if (isAddingDevice) {
+      return (
+        <AddDeviceFormView 
+          newDevice={newDevice}
+          setNewDevice={setNewDevice}
+          handleFileChange={handleFileChange}
+          handleFileRemove={handleFileRemove}
+          onBack={handleBackToDeviceList}
+        />
+      )
+    } else {
+      return (
+        <DeviceListView
+          devices={devices}
+          onRemoveDevice={removeDevice}
+          onAddDevice={addDevice}
+        />
+      )
+    }
+  }
+
   return (
     <Modal
       title={isAddingDevice ? 'Add New Device' : 'Device List'}
@@ -188,7 +205,6 @@ const DeviceSelectionModal = ({ visible, onClose }) => {
       onCancel={onClose}
       onOk={isAddingDevice ? handleConfirmNewDevice : handleConfirm}
       okText={isAddingDevice ? 'Add Device' : 'Confirm'}
-      // Add a customized button to the footer
       footer={loading ? null :
         [
           <Button key="submit" type="primary" onClick={isAddingDevice ? handleConfirmNewDevice : handleConfirm}>
@@ -196,88 +212,7 @@ const DeviceSelectionModal = ({ visible, onClose }) => {
           </Button>,
         ]}
     >
-      {loading ? (
-        <div style={{ textAlign: 'center', padding: '20px' }}>
-          {/* <Spin tip="Processing..."> */}
-          <Steps current={currentStep} direction="vertical">
-            {steps.map((item, index) => (
-              <Steps.Step
-                key={index}
-                title={item.title}
-                description={item.description}
-                icon={item.key !== 1 && item.key === currentStep + 1 ? <LoadingOutlined /> : ''}
-              />
-            ))}
-          </Steps>
-          {/* </Spin> */}
-        </div>
-      ) : isAddingDevice ? (
-        <div>
-          <ArrowLeftOutlined
-            onClick={handleBackToDeviceList}
-            style={{ fontSize: 20, marginBottom: 20, cursor: 'pointer' }}
-          />
-          <Form layout="vertical">
-            <Form.Item label="Device Name">
-              <Input
-                placeholder="Enter device name"
-                value={newDevice.name}
-                onChange={(e) => setNewDevice({ ...newDevice, name: e.target.value })}
-              />
-            </Form.Item>
-            <Form.Item label="Select Image File">
-              <Upload
-                multiple
-                beforeUpload={(file) => handleFileChange(file)}
-                onRemove={(file) => handleFileRemove(file)}
-                showUploadList={{ showRemoveIcon: true }}
-                fileList={newDevice?.imagePaths?.map((filePath, index) => ({
-                  uid: index.toString(),
-                  name: filePath.split('/').pop(),
-                  status: 'done',
-                })) || []}
-              >
-                <Button icon={<UploadOutlined />}>Select File</Button>
-              </Upload>
-            </Form.Item>
-          </Form>
-        </div>
-      ) : (
-        <Space direction="vertical" style={{ width: '100%' }}>
-          {devices.map((device, index) => (
-            <Card
-              key={index}
-              title={
-                <span>
-                  <strong>Device Name:</strong> {device.name}
-                </span>
-              }
-              style={{ marginBottom: '10px' }}
-              extra={
-                <CloseOutlined
-                  onClick={() => removeDevice(device.id)}
-                  style={{ cursor: 'pointer' }}
-                />
-              }
-            >
-              <p>
-                <strong>Device Image Path:</strong> {device.imagePath || 'N/A'}
-              </p>
-              <p>
-                <strong>Device Process Date:</strong>{' '}
-                {device.created_at ? new Date(device.created_at).toLocaleString() : 'N/A'}
-              </p>
-            </Card>
-          ))}
-          <Button
-            icon={<PlusOutlined />}
-            onClick={addDevice}
-            style={{ width: '100%', marginTop: '10px' }}
-          >
-            Add Another Device
-          </Button>
-        </Space>
-      )}
+      {renderModalContent()}
     </Modal>
   )
 }

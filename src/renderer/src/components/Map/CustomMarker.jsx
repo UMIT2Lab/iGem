@@ -4,29 +4,36 @@ import 'leaflet/dist/leaflet.css'
 import { MapContainer, Marker, Popup, TileLayer, useMap } from 'react-leaflet'
 import colorSchemes from './ColorSchemes'
 
-const CustomMarker = ({ position, children, color, ktx, mapDeviceId, appUsage }) => {
+const CustomMarker = ({ position, children, ktx = false, mapDeviceId = 1, appUsage = null, markerSize = 30 }) => {
   const map = useMap()
   const deviceColorScheme = colorSchemes[mapDeviceId - 1]
 
-  // Choose border color based on ktx presence
+  // Use the provided markerSize or default to 30
+  const size = markerSize || 30;
+  
   const borderColor = ktx
     ? deviceColorScheme.borderColorPresent
+    : appUsage != null
+    ? deviceColorScheme.borderColorApp
     : deviceColorScheme.borderColorAbsent
+
+  const innerColor = deviceColorScheme.innerColor
+
   const customDivIcon = L.divIcon({
     className: 'custom-div-icon',
     html: `<div style="
       position: relative;
-      background-color: ${deviceColorScheme.innerColor};
-      width: 35px;
-      height: 35px;
+      background-color: ${innerColor};
+      width: ${size}px;
+      height: ${size}px;
       border-radius: 50%;
       display: flex;
       align-items: center;
       justify-content: center;
       color: white;
-      font-size: 16px;
+      font-size: ${size / 2.5}px;
       font-weight: bold;
-      border: 4px solid ${borderColor};
+      border: ${size / 7.5}px solid ${borderColor};
     ">
       ${mapDeviceId}
       ${
@@ -73,8 +80,8 @@ const CustomMarker = ({ position, children, color, ktx, mapDeviceId, appUsage })
             }
 
     </div>`,
-    iconSize: [35, 35],
-    iconAnchor: [17.5, 17.5] // Center the icon
+    iconSize: [size, size],
+    iconAnchor: [size / 2, size / 2] // Center the icon
   })
   return (
     <Marker position={position} icon={customDivIcon}>

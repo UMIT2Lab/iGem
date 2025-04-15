@@ -569,3 +569,393 @@ ipcMain.handle('remove-device', async (event, deviceId) => {
     return { success: false, error: error.message }
   }
 })
+
+// Helper function to process KnowledgeC database
+async function processKnowledgeCDatabase(knowledgeCFilePath, deviceId) {
+  return new Promise((resolve, reject) => {
+    console.log(`Processing KnowledgeC database: ${knowledgeCFilePath}`);
+    
+    // Open the KnowledgeC database
+    const knowledgeDb = new sqlite3.Database(knowledgeCFilePath, sqlite3.OPEN_READONLY, (err) => {
+      if (err) return reject(new Error(`Could not open KnowledgeC.db: ${err.message}`));
+    });
+
+    const focusQuery = `
+SELECT
+  ZOBJECT.ZSTARTDATE AS "Start Time",
+  ZOBJECT.ZENDDATE AS "End Time",
+  ZOBJECT.ZVALUESTRING AS "Bundle Identifier",
+  ZOBJECT.ZENDDATE - ZOBJECT.ZSTARTDATE AS "Focus Duration (Seconds)"
+FROM
+  ZOBJECT
+WHERE
+  ZOBJECT.ZSTREAMNAME = "/app/inFocus"
+ORDER BY
+  ZOBJECT.ZSTARTDATE DESC;
+`
+
+    const usageQuery = `
+SELECT
+  ZOBJECT.ZSTARTDATE AS "Start Time",
+  ZOBJECT.ZENDDATE AS "End Time",
+  ZOBJECT.ZVALUESTRING AS "Bundle Identifier",
+  ZOBJECT.ZENDDATE - ZOBJECT.ZSTARTDATE AS "Usage Duration (Seconds)"
+FROM
+  ZOBJECT
+WHERE
+  ZOBJECT.ZSTREAMNAME = "/app/usage"
+ORDER BY
+  ZOBJECT.ZSTARTDATE DESC;
+`
+
+    const processQuery = (query, type) => {
+      return new Promise((resolveQuery, rejectQuery) => {
+        knowledgeDb.all(query, (err, rows) => {
+          if (err) {
+            console.error(`Error querying ZOBJECT for ${type}:`, err.message);
+            return rejectQuery(err.message);
+          }
+
+          // Map rows to application_data format
+          const appUsageData = rows.map((row) => ({
+            deviceId: deviceId,
+            bundleIdentifier: row['Bundle Identifier'],
+            startTime: new Date((row['Start Time'] + IOS_TO_UNIX_EPOCH_OFFSET) * 1000),
+            endTime: new Date((row['End Time'] + IOS_TO_UNIX_EPOCH_OFFSET) * 1000),
+            duration:
+              row[type === 'focus' ? 'Focus Duration (Seconds)' : 'Usage Duration (Seconds)'],
+            type
+          }));
+
+          resolveQuery(appUsageData);
+        });
+      });
+    };
+
+    Promise.all([processQuery(focusQuery, 'focus'), processQuery(usageQuery, 'usage')])
+      .then(async ([focusData, usageData]) => {
+        const allData = [...focusData, ...usageData];
+
+        // Insert in batches
+        const chunks = chunkArray(allData, 100);
+        try {
+          for (const chunk of chunks) {
+            await knex('application_data').insert(chunk);
+          }
+          resolve({ success: true, count: allData.length });
+        } catch (insertError) {
+          console.error('Error inserting into application_data:', insertError.message);
+          reject({ success: false, error: insertError.message });
+        } finally {
+          knowledgeDb.close();
+        }
+      })
+      .catch((queryError) => {
+        console.error('Error processing queries:', queryError);
+        knowledgeDb.close();
+        reject({ success: false, error: queryError });
+      });
+  });
+}
+
+// Helper function to process Cache.sqlite database
+async function processCacheSqliteDatabase(cacheSqlitePath, deviceId) {
+  return new Promise((resolve, reject) => {
+    console.log(`Processing Cache.sqlite database: ${cacheSqlitePath}`);
+    
+    // Open the Cache.sqlite database
+    const cacheDb = new sqlite3.Database(cacheSqlitePath, sqlite3.OPEN_READONLY, (err) => {
+      if (err) return reject(new Error(`Could not open Cache.sqlite: ${err.message}`));
+    });
+
+    const query = `SELECT ZLATITUDE AS latitude, ZLONGITUDE AS longitude, ZSPEED AS speed, 
+                    ZVERTICALACCURACY AS verticalAccuracy, ZHORIZONTALACCURACY AS horizontalAccuracy, 
+                    ZTIMESTAMP AS timestamp FROM ZRTCLLOCATIONMO`;
+
+    cacheDb.all(query, async (err, rows) => {
+      if (err) {
+        cacheDb.close();
+        console.error('Error querying ZRTCLLOCATIONMO:', err.message);
+        return reject({ success: false, error: err.message });
+      }
+
+      // Process each row and adjust the timestamp
+      const locationData = rows.map((row) => ({
+        deviceId: deviceId,
+        latitude: row.latitude,
+        longitude: row.longitude,
+        speed: row.speed,
+        verticalAccuracy: row.verticalAccuracy,
+        horizontalAccuracy: row.horizontalAccuracy,
+        timestamp: new Date((row.timestamp + IOS_TO_UNIX_EPOCH_OFFSET) * 1000) // Convert iOS time to Unix time
+      }));
+
+      // Insert in batches
+      const chunks = chunkArray(locationData, 100);
+      try {
+        for (const chunk of chunks) {
+          await knex('device_locations').insert(chunk);
+        }
+        cacheDb.close();
+        resolve({ success: true, count: locationData.length });
+      } catch (insertError) {
+        cacheDb.close();
+        console.error('Error inserting into device_locations:', insertError.message);
+        reject({ success: false, error: insertError.message });
+      }
+    });
+  });
+}
+
+// Updated handler to process database files with better step tracking and file path handling
+ipcMain.handle('process-database-files', async (event, { knowledgeCFile, cacheFile, deviceId }) => {
+  console.log('Processing database files:', { knowledgeCFile, cacheFile, deviceId });
+  
+  const results = {
+    knowledgeC: null,
+    cache: null
+  };
+
+  try {
+    // Process KnowledgeC.db if provided
+    if (knowledgeCFile && knowledgeCFile.path) {
+      try {
+        // Update the frontend that we're starting this step
+        event.sender.send('database-processing-update', { 
+          step: 'knowledgeC', 
+          status: 'started',
+          message: `Processing KnowledgeC.db: ${knowledgeCFile.name || path.basename(knowledgeCFile.path)}...`
+        });
+        
+        // Open the KnowledgeC database
+        const knowledgeDb = new sqlite3.Database(knowledgeCFile.path, sqlite3.OPEN_READONLY, (err) => {
+          if (err) throw new Error(`Could not open KnowledgeC.db: ${err.message}`);
+        });
+
+        const focusQuery = `
+        SELECT
+          ZOBJECT.ZSTARTDATE AS "Start Time",
+          ZOBJECT.ZENDDATE AS "End Time",
+          ZOBJECT.ZVALUESTRING AS "Bundle Identifier",
+          ZOBJECT.ZENDDATE - ZOBJECT.ZSTARTDATE AS "Focus Duration (Seconds)"
+        FROM
+          ZOBJECT
+        WHERE
+          ZOBJECT.ZSTREAMNAME = "/app/inFocus"
+        ORDER BY
+          ZOBJECT.ZSTARTDATE DESC;
+        `;
+
+        const usageQuery = `
+        SELECT
+          ZOBJECT.ZSTARTDATE AS "Start Time",
+          ZOBJECT.ZENDDATE AS "End Time",
+          ZOBJECT.ZVALUESTRING AS "Bundle Identifier",
+          ZOBJECT.ZENDDATE - ZOBJECT.ZSTARTDATE AS "Usage Duration (Seconds)"
+        FROM
+          ZOBJECT
+        WHERE
+          ZOBJECT.ZSTREAMNAME = "/app/usage"
+        ORDER BY
+          ZOBJECT.ZSTARTDATE DESC;
+        `;
+
+        // Use Promise.all to run both queries concurrently
+        const [focusRows, usageRows] = await Promise.all([
+          new Promise((resolve, reject) => {
+            knowledgeDb.all(focusQuery, (err, rows) => {
+              if (err) {
+                reject(err);
+                return;
+              }
+              resolve(rows);
+            });
+          }),
+          new Promise((resolve, reject) => {
+            knowledgeDb.all(usageQuery, (err, rows) => {
+              if (err) {
+                reject(err);
+                return;
+              }
+              resolve(rows);
+            });
+          })
+        ]);
+
+        // Map rows to application_data format
+        const focusData = focusRows.map((row) => ({
+          deviceId,
+          bundleIdentifier: row['Bundle Identifier'],
+          startTime: new Date((row['Start Time'] + IOS_TO_UNIX_EPOCH_OFFSET) * 1000),
+          endTime: new Date((row['End Time'] + IOS_TO_UNIX_EPOCH_OFFSET) * 1000),
+          duration: row['Focus Duration (Seconds)'],
+          type: 'focus'
+        }));
+
+        const usageData = usageRows.map((row) => ({
+          deviceId: deviceId.id,
+          bundleIdentifier: row['Bundle Identifier'],
+          startTime: new Date((row['Start Time'] + IOS_TO_UNIX_EPOCH_OFFSET) * 1000),
+          endTime: new Date((row['End Time'] + IOS_TO_UNIX_EPOCH_OFFSET) * 1000),
+          duration: row['Usage Duration (Seconds)'],
+          type: 'usage'
+        }));
+
+        const allData = [...focusData, ...usageData];
+
+        // Insert data into the database in batches
+        const chunks = chunkArray(allData, 100);
+        let insertedCount = 0;
+        
+        for (const chunk of chunks) {
+          await knex('application_data').insert(chunk);
+          insertedCount += chunk.length;
+        }
+
+        knowledgeDb.close();
+        
+        results.knowledgeC = { 
+          success: true, 
+          count: insertedCount
+        };
+        
+        // Update the frontend that this step completed
+        event.sender.send('database-processing-update', { 
+          step: 'knowledgeC', 
+          status: 'completed',
+          result: results.knowledgeC
+        });
+      } catch (knowledgeError) {
+        console.error('Error processing KnowledgeC database:', knowledgeError);
+        results.knowledgeC = { 
+          success: false, 
+          error: knowledgeError instanceof Error ? knowledgeError.message : 'Unknown error' 
+        };
+        
+        // Update the frontend about the error
+        event.sender.send('database-processing-update', { 
+          step: 'knowledgeC', 
+          status: 'error',
+          error: results.knowledgeC.error
+        });
+      }
+    }
+
+    // Process Cache.sqlite if provided
+    if (cacheFile && cacheFile.path) {
+      try {
+        // Update the frontend that we're starting this step
+        event.sender.send('database-processing-update', { 
+          step: 'cache', 
+          status: 'started',
+          message: `Processing Cache.sqlite: ${cacheFile.name || path.basename(cacheFile.path)}...`
+        });
+        
+        // Open the Cache.sqlite database
+        const cacheDb = new sqlite3.Database(cacheFile.path, sqlite3.OPEN_READONLY, (err) => {
+          if (err) throw new Error(`Could not open Cache.sqlite: ${err.message}`);
+        });
+
+        const locationQuery = `SELECT ZLATITUDE AS latitude, ZLONGITUDE AS longitude, ZSPEED AS speed, 
+                              ZVERTICALACCURACY AS verticalAccuracy, ZHORIZONTALACCURACY AS horizontalAccuracy, 
+                              ZTIMESTAMP AS timestamp FROM ZRTCLLOCATIONMO`;
+
+        // Query location data
+        const locationRows = await new Promise((resolve, reject) => {
+          cacheDb.all(locationQuery, (err, rows) => {
+            if (err) {
+              reject(err);
+              return;
+            }
+            resolve(rows);
+          });
+        });
+
+        // Process location data
+        const locationData = locationRows.map((row) => ({
+          deviceId: deviceId.id,
+          latitude: row.latitude,
+          longitude: row.longitude,
+          speed: row.speed,
+          verticalAccuracy: row.verticalAccuracy,
+          horizontalAccuracy: row.horizontalAccuracy,
+          timestamp: new Date((row.timestamp + IOS_TO_UNIX_EPOCH_OFFSET) * 1000)
+        }));
+
+        // Insert location data into the database in batches
+        const chunks = chunkArray(locationData, 100);
+        let insertedCount = 0;
+        
+        for (const chunk of chunks) {
+          await knex('device_locations').insert(chunk);
+          insertedCount += chunk.length;
+        }
+
+        cacheDb.close();
+        
+        results.cache = { 
+          success: true, 
+          count: insertedCount
+        };
+        
+        // Update the frontend that this step completed
+        event.sender.send('database-processing-update', { 
+          step: 'cache', 
+          status: 'completed',
+          result: results.cache
+        });
+      } catch (cacheError) {
+        console.error('Error processing Cache.sqlite database:', cacheError);
+        results.cache = { 
+          success: false, 
+          error: cacheError instanceof Error ? cacheError.message : 'Unknown error' 
+        };
+        
+        // Update the frontend about the error
+        event.sender.send('database-processing-update', { 
+          step: 'cache', 
+          status: 'error',
+          error: results.cache.error
+        });
+      }
+    }
+
+
+    return { 
+      success: true, 
+      knowledgeC: results.knowledgeC, 
+      cache: results.cache 
+    };
+  } catch (error) {
+    console.error('Error processing database files:', error);
+    return { 
+      success: false, 
+      error: error instanceof Error ? error.message : 'Unknown error' 
+    };
+  }
+});
+
+// Add handlers for individual processing tasks to allow direct access from frontend
+ipcMain.handle('process-knowledge-database', async (event, { filePath, deviceId }) => {
+  try {
+    return await processKnowledgeCDatabase(filePath, deviceId);
+  } catch (error) {
+    console.error('Error in process-knowledge-database handler:', error);
+    return { 
+      success: false, 
+      error: error instanceof Error ? error.message : 'Unknown error' 
+    };
+  }
+});
+
+ipcMain.handle('process-cache-database', async (event, { filePath, deviceId }) => {
+  try {
+    return await processCacheSqliteDatabase(filePath, deviceId);
+  } catch (error) {
+    console.error('Error in process-cache-database handler:', error);
+    return { 
+      success: false, 
+      error: error instanceof Error ? error.message : 'Unknown error' 
+    };
+  }
+});
