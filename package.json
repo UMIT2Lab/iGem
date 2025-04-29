@@ -32,7 +32,9 @@
     "@electron-toolkit/utils": "^3.0.0",
     "antd": "^5.22.5",
     "knex": "^3.1.0",
+    "leaflet-polylinedecorator": "^1.6.0",
     "react-leaflet": "^4.2.1",
+    "react-leaflet-cluster": "^2.1.0",
     "react-router-dom": "^7.1.0",
     "sqlite3": "^5.1.6",
     "yauzl": "^3.2.0"
