@@ -3,7 +3,7 @@ import { Space, Card, Button, Row, Col } from 'antd'
 import { PlusOutlined, CloseOutlined } from '@ant-design/icons'
 import DatabaseFilesModal from './DatabaseFilesModal'
 
-const DeviceListView = ({ devices, onRemoveDevice, onAddDevice }) => {
+const DeviceListView = ({ devices, onRemoveDevice, onAddDevice, caseId }) => {
   const [databaseModalVisible, setDatabaseModalVisible] = useState(false)
 
   const handleAddDatabaseFiles = () => {
@@ -76,6 +76,7 @@ const DeviceListView = ({ devices, onRemoveDevice, onAddDevice }) => {
         visible={databaseModalVisible}
         onCancel={handleDatabaseModalCancel}
         onSubmit={handleDatabaseModalSubmit}
+        caseId={caseId} // Pass the caseId to the modal
       />
     </Space>
   )

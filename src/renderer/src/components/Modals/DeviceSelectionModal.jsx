@@ -13,11 +13,12 @@ const processingSteps = [
   { title: 'Save Device Info', description: 'Saving device metadata' },
   { title: 'Extract Location Data', description: 'Extracting location information' },
   { title: 'Extract App Usage', description: 'Processing app usage data' },
-  { title: 'Extract Screenshots', description: 'Processing device screenshots' },
+  { title: 'Extract KTX Files', description: 'Processing device KTX files' },
+  { title: 'Extract WiFi Locations', description: 'Extracting Wifi Locations' },
   { title: 'Complete', description: 'Processing complete!' }
 ];
 
-const DeviceSelectionModal = ({ visible, onClose }) => {
+const DeviceSelectionModal = ({ visible, onClose, caseId }) => {
   const [devices, setDevices] = useState([])
   const [isAddingDevice, setIsAddingDevice] = useState(false)
   const [newDevice, setNewDevice] = useState({
@@ -32,7 +33,7 @@ const DeviceSelectionModal = ({ visible, onClose }) => {
 
   // Load saved devices from the database on component mount
   useEffect(() => {
-    ipcRenderer.invoke('get-devices').then((res) => setDevices(res.data))
+    ipcRenderer.invoke('get-devices', caseId).then((res) => setDevices(res.data))
   }, [])
 
   const handleFileChange = (file) => {
@@ -105,13 +106,14 @@ const DeviceSelectionModal = ({ visible, onClose }) => {
       // Step 1: Save Device Info
       const addDeviceResult = await ipcRenderer.invoke('add-device', {
         ...newDevice,
-        created_at: Date.now()
+        created_at: Date.now(),
+        caseId: caseId // Include the caseId when saving the device
       })
       if (!addDeviceResult.success) throw new Error('Failed to save device info')
       setAddedDeviceId(addDeviceResult.id)
       setCurrentStep(1)
 
-      // Step 2: Extract Files
+      // // Step 2: Extract Files
       const extractDir = path.join(window.require('os').tmpdir(), `extracted-device-${Date.now()}`)
       if (!fs.existsSync(extractDir)) fs.mkdirSync(extractDir, { recursive: true })
       console.log(extractDir)
@@ -150,12 +152,23 @@ const DeviceSelectionModal = ({ visible, onClose }) => {
       console.log(processResponse)
 
       setCurrentStep(4)
+
+      // Step 4: Wifi Location Data
+      const wifiLocationResponse = await ipcRenderer.invoke(
+        'extract-wifi-locations',
+        newDevice.imagePath,
+        extractDir,
+        addDeviceResult.id
+      )
+      console.log(wifiLocationResponse)
+
+      setCurrentStep(5)
       await sleep(2 * 1000)
 
     } catch (error) {
       message.error(error.message || 'Error processing device')
     } finally {
-      ipcRenderer.invoke('get-devices').then((res) => setDevices(res.data))
+      ipcRenderer.invoke('get-devices', caseId).then((res) => setDevices(res.data))
       console.log('Devices:', devices)
       setLoading(false)
       setIsAddingDevice(false)
@@ -176,7 +189,7 @@ const DeviceSelectionModal = ({ visible, onClose }) => {
   // Determine which content to render based on state
   const renderModalContent = () => {
     if (loading) {
-      return <ProcessingStepsView steps={processingSteps} currentStep={currentStep} />
+      return <ProcessingStepsView steps={processingSteps} currentStep={currentStep} direction="vertical"/>
     } else if (isAddingDevice) {
       return (
         <AddDeviceFormView 
