@@ -141,10 +141,28 @@ knex.schema
         table.increments('id').primary() // Primary key
         table.string('name').notNullable() // Name of the case
         table.text('description').nullable() // Description of the case
+        table.string('investigatorName').notNullable().defaultTo('') // Name of the investigator
+        table.string('caseType').notNullable().defaultTo('') // Type of the case
         table.timestamp('createdAt').defaultTo(knex.fn.now()) // Timestamp for when the case was created
       })
+    } else {
+      // Add investigatorName column if it doesn't exist
+      return knex.schema.hasColumn('cases', 'investigatorName').then((hasColumn) => {
+        if (!hasColumn) {
+          return knex.schema.table('cases', (table) => {
+            table.string('investigatorName').notNullable().defaultTo('')
+          });
+        }
+      });
     }
   })
+  .then(() => knex.schema.hasTable('cases').then(() => knex.schema.hasColumn('cases', 'caseType')).then(has => {
+    if (!has) {
+      return knex.schema.table('cases', table => {
+        table.string('caseType').notNullable().defaultTo('')
+      });
+    }
+  }))
   .then(() => {
     console.log('Cases table setup complete.')
   })

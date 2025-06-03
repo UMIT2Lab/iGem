@@ -4,7 +4,7 @@ import 'leaflet/dist/leaflet.css'
 import { MapContainer, Marker, Popup, TileLayer, useMap } from 'react-leaflet'
 import colorSchemes from './ColorSchemes'
 
-const CustomMarker = ({ position, children, ktx = false, mapDeviceId = 1, appUsage = null, markerSize = 30 }) => {
+const CustomMarker = ({ position, children, ktx = false, mapDeviceId = 1, appUsage = null, markerSize = 30, wifi = false }) => {
   const map = useMap()
   const deviceColorScheme = colorSchemes[mapDeviceId - 1]
 
@@ -18,6 +18,9 @@ const CustomMarker = ({ position, children, ktx = false, mapDeviceId = 1, appUsa
     : deviceColorScheme.borderColorAbsent
 
   const innerColor = deviceColorScheme.innerColor
+
+  // Choose symbol: pin for GPS, bars for Wi-Fi
+  const symbol = wifi ? '📶' : '📍';
 
   const customDivIcon = L.divIcon({
     className: 'custom-div-icon',
@@ -35,7 +38,7 @@ const CustomMarker = ({ position, children, ktx = false, mapDeviceId = 1, appUsa
       font-weight: bold;
       border: ${size / 7.5}px solid ${borderColor};
     ">
-      ${mapDeviceId}
+      ${symbol}
       ${
         ktx
           ? `<div style="

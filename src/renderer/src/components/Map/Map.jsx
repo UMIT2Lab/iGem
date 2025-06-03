@@ -27,7 +27,8 @@ import {
   ControlOutlined,
   EnvironmentOutlined,
   CloseOutlined,
-  HomeOutlined
+  HomeOutlined,
+  WifiOutlined
 } from '@ant-design/icons'
 import { MapContainer, TileLayer, Popup, LayersControl, LayerGroup, useMap, useMapEvents } from 'react-leaflet'
 import DeviceSelectionModal from '../Modals/DeviceSelectionModal'
@@ -40,7 +41,10 @@ import PolylineDecorator from './PolylineDecorator'
 const { Meta } = Card
 const { Header } = Layout
 const { ipcRenderer } = window.require('electron') // Import ipcRenderer for database fetching
-
+function formatMac(mac) {
+  const hex = BigInt(mac).toString(16).padStart(12, '0');
+  return hex.match(/.{2}/g).join(':').toUpperCase();
+}
 // Custom component to update map settings that need map instance
 const MapSettings = ({ center, zoom, autoCenterMap, currentLocation }) => {
   const map = useMap();
@@ -101,6 +105,10 @@ const MapClickHandler = ({ enabled, onLocationSelect }) => {
 export default function Map({ onClose, caseId }) {
   const [filteredLocations, setFilteredLocations] = useState([])
   const [visibleLocations, setVisibleLocations] = useState([])
+  const [wifiLocations, setWifiLocations] = useState([]) // State for WiFi locations
+  // State for filtered & visible Wi-Fi locations
+  const [filteredWifiLocations, setFilteredWifiLocations] = useState([]);
+  const [visibleWifiLocations, setVisibleWifiLocations] = useState([]);
   const [startDateTime, setStartDateTime] = useState(null)
   const [endDateTime, setEndDateTime] = useState(null)
   const [isPlaying, setIsPlaying] = useState(false)
@@ -335,7 +343,15 @@ export default function Map({ onClose, caseId }) {
       setLocations(allLocations)
       setKtxFiles(allKtxFiles)
       matchKtxToLocations(matchedLocations, allKtxFiles)
-      console.log(matchedLocations.filter((x) => x.appUsage != null))
+      // Fetch WiFi locations for the case
+      const wifiResponse = await ipcRenderer.invoke('get-wifi-locations', caseId)
+      if (wifiResponse.success) {
+        const wifiData = wifiResponse.data.map(w => ({
+          ...w,
+          timestamp: new Date(w.timestamp)
+        }))
+        setWifiLocations(wifiData)
+      }
     }
 
     fetchData()
@@ -373,14 +389,20 @@ export default function Map({ onClose, caseId }) {
         )
         .sort((a, b) => a.timestamp - b.timestamp)
       setFilteredLocations(filtered)
+      // filter WiFi by same date range
+      const wf = wifiLocations
+        .filter(w => Date.parse(w.timestamp) >= Date.parse(startDateTime) && Date.parse(w.timestamp) <= Date.parse(endDateTime))
+        .sort((a, b) => a.timestamp - b.timestamp)
+      setFilteredWifiLocations(wf)
       messageApi.open({
         type: 'success',
         content: `${filtered.length} data points found`,
       });
     } else {
       setFilteredLocations([])
+      setFilteredWifiLocations([])
     }
-  }, [startDateTime, endDateTime, matchedLocations])
+  }, [startDateTime, endDateTime, matchedLocations, wifiLocations])
 
   // Update startAnimation to use the dynamic speed from settings
   const startAnimation = () => {
@@ -429,13 +451,20 @@ export default function Map({ onClose, caseId }) {
   const updateVisibleLocations = (newIndex) => {
     let recentLocations;
     if (mapSettings.maxLocations && filteredLocations.length > mapSettings.maxLocations) {
-      // If we have more locations than the max, show the most recent ones
-      const startIdx = Math.max(0, newIndex + 1 - mapSettings.maxLocations);
-      recentLocations = filteredLocations.slice(startIdx, newIndex + 1);
+      const startIdx = Math.max(0, newIndex + 1 - mapSettings.maxLocations)
+      recentLocations = filteredLocations.slice(startIdx, newIndex + 1)
     } else {
-      recentLocations = filteredLocations.slice(0, newIndex + 1);
+      recentLocations = filteredLocations.slice(0, newIndex + 1)
     }
-    setVisibleLocations(recentLocations);
+    setVisibleLocations(recentLocations)
+    // Update visible Wi-Fi locations up to current GPS timestamp
+    const currentGpsTime = filteredLocations[newIndex]?.timestamp;
+    if (currentGpsTime) {
+      const wifiSlice = filteredWifiLocations.filter(loc => loc.timestamp <= currentGpsTime);
+      setVisibleWifiLocations(wifiSlice);
+    } else {
+      setVisibleWifiLocations([]);
+    }
   };
 
   const closeDrawer = () => {
@@ -665,7 +694,31 @@ export default function Map({ onClose, caseId }) {
                       )}
                     </LayerGroup>
                   </LayersControl.Overlay>
-                  
+                  {/* Overlay for WiFi locations */}
+                  <LayersControl.Overlay name="WiFi Locations">
+                    <LayerGroup>
+                      {visibleWifiLocations.map((loc, idx) => (
+                        <CustomMarker
+                          key={idx}
+                          position={[loc.latitude, loc.longitude]} 
+                          mapDeviceId={loc.deviceId}
+                          markerSize={mapSettings.markerSize}
+                          wifi={true}
+                        >
+                          <Popup>
+                            <div>
+                              <p>MAC: {formatMac(loc.mac)}</p>
+                              <p>Timestamp: {loc.timestamp.toLocaleString()}</p>
+                              <p>Channel: {loc.channel ?? 'N/A'}</p>
+                              <p>Speed: {loc.speed ?? 'N/A'} m/s</p>
+                              <p>Accuracy: {loc.horizontalAccuracy ?? 'N/A'} m</p>
+                            </div>
+                          </Popup>
+                        </CustomMarker>
+                      ))}
+                    </LayerGroup>
+                  </LayersControl.Overlay>
+
                   {/* New overlay for user-defined areas */}
                   <LayersControl.Overlay checked name="Areas">
                     <LayerGroup>
