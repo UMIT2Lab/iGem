@@ -126,7 +126,7 @@ const CasesPage = () => {
           background: '#A2C2E4', 
           padding: '0 16px', 
           display: 'flex', 
-          alignItems: 'center', 
+          alignItems: 'center',
           justifyContent: 'space-between',
           boxShadow: '0 2px 8px rgba(0, 0, 0, 0.09)',
           margin: 0,
@@ -217,6 +217,12 @@ const CasesPage = () => {
                         <Typography.Text type="secondary" style={{ fontSize: '12px' }}>
                           Created: {new Date(item.createdAt).toLocaleDateString()}
                         </Typography.Text>
+                        <Typography.Text type="secondary" style={{ fontSize: '12px', display: 'block' }}>
+                          Investigator: {item.investigatorName || 'N/A'}
+                        </Typography.Text>
+                        <Typography.Text type="secondary" style={{ fontSize: '12px', display: 'block' }}>
+                          Case Type: {item.caseType || 'N/A'}
+                        </Typography.Text>
                       </div>
                     </Space>
                   </Card>
@@ -276,6 +282,20 @@ const CasesPage = () => {
           form={form}
           layout="vertical"
         >
+          <Form.Item
+            name="investigatorName"
+            label="Investigator Name"
+            rules={[{ required: true, message: 'Please enter an investigator name' }]}
+          >
+            <Input placeholder="Enter investigator name" style={{ borderRadius: '6px', height: '40px' }} />
+          </Form.Item>
+          <Form.Item
+            name="caseType"
+            label="Case Type"
+            rules={[{ required: true, message: 'Please enter a case type' }]}
+          >
+            <Input placeholder="Enter case type" style={{ borderRadius: '6px', height: '40px' }} />
+          </Form.Item>
           <Form.Item
             name="name"
             label="Case Name"

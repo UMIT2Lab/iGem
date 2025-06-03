@@ -654,6 +654,20 @@ ipcMain.handle('get-app-usage', async (event, deviceId) => {
   }
 })
 
+// Handler to retrieve WiFi locations for a given caseId
+ipcMain.handle('get-wifi-locations', async (event, caseId) => {
+  try {
+    const rows = await knex('wifi_locations')
+      .join('devices', 'wifi_locations.deviceId', 'devices.id')
+      .where('devices.caseId', caseId)
+      .select('wifi_locations.*');
+    return { success: true, data: rows };
+  } catch (error) {
+    console.error('Error fetching WiFi locations:', error);
+    return { success: false, error: error.message };
+  }
+});
+
 ipcMain.handle('add-device', async (event, device, caseId) => {
   try {
     // Store the imagePaths for later use
