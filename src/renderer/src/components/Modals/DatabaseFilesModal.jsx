@@ -6,7 +6,7 @@ import ProcessingStepsView from './ProcessingStepsView'
 const { Dragger } = Upload
 const { Title, Text, Paragraph } = Typography
 
-const DatabaseFilesModal = ({ visible, onCancel, onSubmit }) => {
+const DatabaseFilesModal = ({ visible, onCancel, onSubmit, caseId }) => {
   const [knowledgeCFile, setKnowledgeCFile] = useState(null)
   const [cacheFile, setCacheFile] = useState(null)
   const [deviceName, setDeviceName] = useState('')
@@ -122,10 +122,11 @@ const DatabaseFilesModal = ({ visible, onCancel, onSubmit }) => {
         ...prev,
         device: { status: 'started', message: 'Creating device record...' }
       }));
-      
+      console.log('Adding device with name:', deviceName, 'and caseId:', caseId);
       const deviceResult = await window.electron.ipcRenderer.invoke('add-device', {
         name: deviceName,
-        created_at: new Date().toISOString()
+        created_at: new Date().toISOString(),
+        caseId // Include the caseId here
       });
       
       if (!deviceResult.success) {

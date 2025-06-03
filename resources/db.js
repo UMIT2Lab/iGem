@@ -13,13 +13,16 @@ const knex = require('knex')({
 // Log the database path for debugging
 console.log('Database path:', path.join(app.getPath('userData'), 'devices.db'))
 
-// Create the 'devices' table if it doesn't exist
+knex.raw('PRAGMA foreign_keys = ON')
+
+// Create the 'devices' table
 knex.schema
   .hasTable('devices')
   .then((exists) => {
     if (!exists) {
       return knex.schema.createTable('devices', (table) => {
         table.increments('id').primary()
+        table.integer('caseId').unsigned()
         table.string('name').notNullable()
         table.string('imagePath') // Store path to the ZIP file (can be null now)
         table.text('imagePaths') // Store JSON string of multiple paths
@@ -42,6 +45,7 @@ knex.schema
   .catch((error) => {
     console.error('Error setting up database:', error)
   })
+
 // Create the 'device_locations' table if it doesn't exist
 knex.schema
   .hasTable('device_locations')
@@ -126,6 +130,68 @@ knex.schema
   })
   .catch((error) => {
     console.error('Error setting up KTX files table:', error)
+  })
+
+// Create the 'cases' table if it doesn't exist
+knex.schema
+  .hasTable('cases')
+  .then((exists) => {
+    if (!exists) {
+      return knex.schema.createTable('cases', (table) => {
+        table.increments('id').primary() // Primary key
+        table.string('name').notNullable() // Name of the case
+        table.text('description').nullable() // Description of the case
+        table.timestamp('createdAt').defaultTo(knex.fn.now()) // Timestamp for when the case was created
+      })
+    }
+  })
+  .then(() => {
+    console.log('Cases table setup complete.')
+  })
+  .catch((error) => {
+    console.error('Error setting up cases table:', error)
+  })
+
+// Create the 'wifi_locations' table if it doesn't exist
+knex.schema
+  .hasTable('wifi_locations')
+  .then((exists) => {
+    if (!exists) {
+      return knex.schema.createTable('wifi_locations', (table) => {
+        table.increments('id').primary() // Auto-increment primary key
+
+        table
+          .integer('deviceId')
+          .unsigned()
+          .notNullable()
+          .references('id')
+          .inTable('devices')
+          .onDelete('CASCADE')
+
+        table.bigInteger('mac').notNullable()
+        table.integer('channel').nullable()
+        table.integer('infoMask').nullable()
+        table.float('timestamp').notNullable()
+        table.float('latitude').notNullable()
+        table.float('longitude').notNullable()
+        table.float('horizontalAccuracy').nullable()
+        table.float('altitude').nullable()
+        table.float('verticalAccuracy').nullable()
+        table.float('speed').nullable()
+        table.float('course').nullable()
+        table.integer('confidence').nullable()
+        table.integer('score').nullable()
+        table.integer('reach').nullable()
+        table.integer('fenceForeignKey').nullable()
+        table.integer('zaxisHarvestTraces').nullable()
+      })
+    }
+  })
+  .then(() => {
+    console.log('WiFi locations table setup complete.')
+  })
+  .catch((error) => {
+    console.error('Error setting up wifi_locations table:', error)
   })
 
 module.exports = knex

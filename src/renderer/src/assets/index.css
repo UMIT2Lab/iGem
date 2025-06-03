@@ -1,0 +1,28 @@
+/* ...existing code... */
+
+.map-view-container {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+}
+
+.map-header {
+  display: flex;
+  align-items: center;
+  padding: 16px;
+  background: white;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  z-index: 1;
+}
+
+.map-container {
+  flex: 1;
+  width: 100%;
+}
+
+/* Responsive styles */
+@media (max-width: 768px) {
+  .ant-list-grid.ant-list-grid-column-1 {
+    margin: 0;
+  }
+}

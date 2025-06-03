@@ -177,6 +177,120 @@ ORDER BY
   }
 })
 
+
+ipcMain.handle('extract-wifi-locations', async (event, zipFilePath, extractDir, deviceId) => {
+  try {
+    const targetFilePathInZip = /.*\/private\/var\/root\/Library\/Caches\/locationd\/cache_encryptedB\.db/;
+
+    const device = await knex('devices').where('id', deviceId.id).first();
+    let imagePaths = [];
+
+    if (device.imagePaths) {
+      try {
+        imagePaths = JSON.parse(device.imagePaths);
+      } catch (e) {
+        console.error('Error parsing imagePaths:', e);
+        if (device.imagePath) {
+          imagePaths = [device.imagePath];
+        }
+      }
+    } else if (device.imagePath) {
+      imagePaths = [device.imagePath];
+    }
+
+    if (zipFilePath && !imagePaths.includes(zipFilePath)) {
+      imagePaths.unshift(zipFilePath);
+    }
+
+    if (imagePaths.length === 0) {
+      throw new Error('No image paths found for processing');
+    }
+
+    if (!fs.existsSync(extractDir)) {
+      fs.mkdirSync(extractDir, { recursive: true });
+    }
+
+    let extractedDbPath = null;
+    let successfulZipPath = null;
+
+    for (const zipPath of imagePaths) {
+      try {
+        console.log(`Trying to extract WiFi DB from: ${zipPath}`);
+        extractedDbPath = await extractFileFromZip(zipPath, targetFilePathInZip, extractDir);
+        successfulZipPath = zipPath;
+        console.log(`Successfully extracted WiFi DB from: ${zipPath}`);
+        break;
+      } catch (zipError) {
+        console.log(`Could not extract WiFi DB from ${zipPath}: ${zipError.message}`);
+      }
+    }
+
+    if (!extractedDbPath) {
+      throw new Error('Could not find the cache_encryptedB.db in any of the provided zip files');
+    }
+
+    const wifiDb = new sqlite3.Database(extractedDbPath, sqlite3.OPEN_READONLY, (err) => {
+      if (err) throw new Error(`Could not open cache_encryptedB.db: ${err.message}`);
+    });
+
+    const query = `
+      SELECT
+        MAC, Channel, InfoMask, Timestamp, Latitude, Longitude,
+        HorizontalAccuracy, Altitude, VerticalAccuracy, Speed,
+        Course, Confidence, Score, Reach, FenceForeignKey
+      FROM WifiLocation
+    `;
+
+    return new Promise((resolve, reject) => {
+      wifiDb.all(query, async (err, rows) => {
+        if (err) {
+          console.error('Error querying WifiLocations:', err.message);
+          wifiDb.close();
+          return reject({ success: false, error: err.message });
+        }
+
+        console.log(`Found ${rows.length} WiFi location records`);
+        console.log(rows[0])
+        const wifiData = rows.map((row) => ({
+          deviceId: deviceId.id,
+          mac: row.MAC,
+          channel: row.Channel,
+          infoMask: row.InfoMask,
+          timestamp: new Date((row.Timestamp + IOS_TO_UNIX_EPOCH_OFFSET) * 1000),
+          latitude: row.Latitude,
+          longitude: row.Longitude,
+          horizontalAccuracy: row.HorizontalAccuracy,
+          altitude: row.Altitude,
+          verticalAccuracy: row.VerticalAccuracy,
+          speed: row.Speed,
+          course: row.Course,
+          confidence: row.Confidence,
+          score: row.Score,
+          reach: row.Reach,
+          fenceForeignKey: row.FenceForeignKey,
+        }));
+
+        const chunks = chunkArray(wifiData, 100);
+        try {
+          for (const chunk of chunks) {
+            await knex('wifi_locations').insert(chunk);
+          }
+          resolve({ success: true, message: 'WiFi location data successfully inserted' });
+        } catch (insertError) {
+          console.error('Error inserting into wifi_locations:', insertError.message);
+          reject({ success: false, error: insertError.message });
+        } finally {
+          wifiDb.close();
+        }
+      });
+    });
+  } catch (error) {
+    console.error('Error processing WiFi DB extraction:', error);
+    return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
+  }
+});
+
+
 ipcMain.handle('get-ktx-files', async (event, deviceId) => {
   try {
     const ktxFiles = await knex('ktx_files')
@@ -517,13 +631,14 @@ ipcMain.handle('process-zip-file', async (event, { icon, zipFilePath, extractDir
 });
 
 
-ipcMain.handle('get-devices', async () => {
+ipcMain.handle('get-devices', async (event, caseId) => {
   try {
-    const data = await knex('devices').select('*')
-    return { success: true, data }
+    console.log(caseId)
+    const data = await knex('devices').where('caseId', caseId).select('*');
+    return { success: true, data };
   } catch (error) {
-    console.error('Error adding device:', error)
-    return { success: false, error: error.message }
+    console.error('Error fetching devices:', error);
+    return { success: false, error: error.message };
   }
 })
 
@@ -539,7 +654,7 @@ ipcMain.handle('get-app-usage', async (event, deviceId) => {
   }
 })
 
-ipcMain.handle('add-device', async (event, device) => {
+ipcMain.handle('add-device', async (event, device, caseId) => {
   try {
     // Store the imagePaths for later use
     const imagePaths = device.imagePaths || [];
@@ -549,7 +664,8 @@ ipcMain.handle('add-device', async (event, device) => {
         name: device.name,
         imagePath: imagePaths.length > 0 ? imagePaths[0] : null, // Store the first path in the imagePath column for backward compatibility
         created_at: device.created_at,
-        imagePaths: JSON.stringify(imagePaths) // Store all paths as a JSON string
+        imagePaths: JSON.stringify(imagePaths), // Store all paths as a JSON string
+        caseId: device.caseId // Associate the device with a case
       })
       .returning('id') // Use 'returning' to get the inserted ID
 
@@ -959,3 +1075,50 @@ ipcMain.handle('process-cache-database', async (event, { filePath, deviceId }) =
     };
   }
 });
+
+// Add a new IPC handler to handle case creation and insert it into the database.
+ipcMain.handle('add-case', async (event, newCase) => {
+  try {
+    console.log('Adding new case:', newCase);
+    const [id] = await knex('cases').insert(newCase).returning('id');
+    return { success: true, id };
+  } catch (error) {
+    console.error('Error adding case:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+// Add a handler to fetch cases from the database
+ipcMain.handle('get-cases', async (event, deviceId) => {
+  try {
+    const cases = await knex('cases').select();
+    console.log('Fetched cases:', cases);
+    return { success: true, data: cases };
+  } catch (error) {
+    console.error('Error fetching cases:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+// Add a handler to update the case status
+ipcMain.handle('update-case-status', async (event, { caseId, status }) => {
+  try {
+    await knex('cases').where('id', caseId).update({ status });
+    return { success: true };
+  } catch (error) {
+    console.error('Error updating case status:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+// Add a handler to delete a case
+ipcMain.handle('delete-case', async (event, caseId) => {
+  try {
+    await knex('cases').where('id', caseId).del();
+    return { success: true };
+  } catch (error) {
+    console.error('Error deleting case:', error);
+    return { success: false, error: error.message };
+  }
+});
+
