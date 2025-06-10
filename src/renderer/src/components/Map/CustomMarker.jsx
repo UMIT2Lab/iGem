@@ -20,7 +20,7 @@ const CustomMarker = ({ position, children, ktx = false, mapDeviceId = 1, appUsa
   const innerColor = deviceColorScheme.innerColor
 
   // Choose symbol: pin for GPS, bars for Wi-Fi
-  const symbol = wifi ? '📶' : '📍';
+  const symbol = wifi ? 'W' : 'G';
 
   const customDivIcon = L.divIcon({
     className: 'custom-div-icon',

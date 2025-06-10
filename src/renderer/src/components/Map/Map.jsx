@@ -687,10 +687,28 @@ export default function Map({ onClose, caseId }) {
                           </Popup>
                         </CustomMarker>
                       ))}
-                      
-                      {/* Show trails between points if enabled */}
+                        {/* Show trails between points if enabled */}
                       {mapSettings.showTrails && visibleLocations.length > 1 && (
-                        <PolylineDecorator positions={visibleLocations.map(loc => [loc.latitude, loc.longitude])} />
+                        <PolylineDecorator 
+                          deviceData={(() => {
+                            // Group locations by device ID
+                            const groupedByDevice = visibleLocations.reduce((acc, location) => {
+                              const deviceId = location.mapDeviceId;
+                              if (!acc[deviceId]) {
+                                acc[deviceId] = [];
+                              }
+                              acc[deviceId].push([location.latitude, location.longitude]);
+                              return acc;
+                            }, {});
+                            
+                            // Convert to array format with colors from colorSchemes
+                            return Object.keys(groupedByDevice).map(deviceId => ({
+                              id: deviceId,
+                              positions: groupedByDevice[deviceId],
+                              color: colorSchemes[parseInt(deviceId) - 1]?.innerColor || '#3388ff'
+                            })).filter(device => device.positions.length >= 2); // Only include devices with 2+ points
+                          })()}
+                        />
                       )}
                     </LayerGroup>
                   </LayersControl.Overlay>

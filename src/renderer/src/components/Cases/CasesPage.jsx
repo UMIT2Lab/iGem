@@ -58,6 +58,7 @@ const CasesPage = () => {
       .then(async (values) => {
         const newCase = {
           ...values,
+          caseType: values.caseType || '',
           createdAt: new Date().toISOString(),
         };
 
@@ -292,7 +293,7 @@ const CasesPage = () => {
           <Form.Item
             name="caseType"
             label="Case Type"
-            rules={[{ required: true, message: 'Please enter a case type' }]}
+            rules={[{ required: false, message: 'Please enter a case type' }]}
           >
             <Input placeholder="Enter case type" style={{ borderRadius: '6px', height: '40px' }} />
           </Form.Item>
