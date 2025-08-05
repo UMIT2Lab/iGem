@@ -10,7 +10,7 @@ const CustomMarker = ({ position, children, ktx = false, mapDeviceId = 1, appUsa
 
   // Use the provided markerSize or default to 30
   const size = markerSize || 30;
-  
+  console.log(mapDeviceId, wifi, ktx, appUsage, size)
   const borderColor = ktx
     ? deviceColorScheme.borderColorPresent
     : appUsage != null

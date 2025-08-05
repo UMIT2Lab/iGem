@@ -1102,6 +1102,7 @@ ipcMain.handle('add-case', async (event, newCase) => {
   }
 });
 
+
 // Add a handler to fetch cases from the database
 ipcMain.handle('get-cases', async (event, deviceId) => {
   try {

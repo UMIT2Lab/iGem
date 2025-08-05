@@ -48,17 +48,17 @@ function formatMac(mac) {
 // Custom component to update map settings that need map instance
 const MapSettings = ({ center, zoom, autoCenterMap, currentLocation }) => {
   const map = useMap();
-  
+
   // Set initial view once when map is first created
   useEffect(() => {
     map.setView(center, zoom);
   }, [map]); // Only run once when map is first created
-  
+
   // Handle zoom changes separately
   useEffect(() => {
     map.setZoom(zoom);
   }, [zoom, map]);
-  
+
   // Use panTo instead of setView to preserve zoom level during location updates
   useEffect(() => {
     if (autoCenterMap && currentLocation) {
@@ -69,7 +69,7 @@ const MapSettings = ({ center, zoom, autoCenterMap, currentLocation }) => {
       });
     }
   }, [autoCenterMap, currentLocation, map]);
-  
+
   return null;
 };
 
@@ -80,11 +80,11 @@ const MapCenterTracker = ({ setMapCenter }) => {
       setMapCenter(map.getCenter());
     }
   });
-  
+
   useEffect(() => {
     setMapCenter(map.getCenter());
   }, [map, setMapCenter]);
-  
+
   return null;
 };
 
@@ -98,7 +98,7 @@ const MapClickHandler = ({ enabled, onLocationSelect }) => {
       }
     }
   });
-  
+
   return null;
 };
 
@@ -140,10 +140,10 @@ export default function Map({ onClose, caseId }) {
     markerSize: 30,
     showAllDevices: true
   });
-  
+
   // Current map tile layer URL based on selected mapLayer
   const [mapTileLayerUrl, setMapTileLayerUrl] = useState("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png");
-  
+
   // Function to handle map settings modal open
   const handleSettingsModalOpen = () => {
     setIsSettingsModalVisible(true);
@@ -157,7 +157,7 @@ export default function Map({ onClose, caseId }) {
   // Function to handle save settings
   const handleSaveSettings = (newSettings) => {
     setMapSettings(newSettings);
-    
+
     // Update map tile layer URL based on selection
     const mapTileLayers = [
       { value: 'osm', url: 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png' },
@@ -165,12 +165,12 @@ export default function Map({ onClose, caseId }) {
       { value: 'cartoDark', url: 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png' },
       { value: 'esri', url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}' },
     ];
-    
+
     const selectedLayer = mapTileLayers.find(layer => layer.value === newSettings.mapLayer);
     if (selectedLayer) {
       setMapTileLayerUrl(selectedLayer.url);
     }
-    
+
     // Update animation speed if it's changed
     if (isPlaying && animationRef.current) {
       clearInterval(animationRef.current);
@@ -276,86 +276,96 @@ export default function Map({ onClose, caseId }) {
 
   useEffect(() => {
     const fetchData = async () => {
-      // Fetch device information from the backend
+      // 1. Fetch all devices, build a mapDeviceId lookup
       const devicesResponse = await ipcRenderer.invoke('get-devices', caseId);
-      const devices = devicesResponse.data
-      const allLocations = []
-      const allKtxFiles = []
-      const allAppUsage = []
-      let c = 1
-      console.log(devicesResponse)
-      setFetchedDevices([])
-      // Loop through each device to fetch its locations, .ktx files, and app usage data
-      for (const device of devices) {
-        const deviceLocationsResponse = await ipcRenderer.invoke('get-device-locations', device.id)
-        const ktxFilesResponse = await ipcRenderer.invoke('get-ktx-files', device.id)
-        const appUsageResponse = await ipcRenderer.invoke('get-app-usage', device.id)
+      const devices = devicesResponse.data;
+      // deviceIdToMapId[ real device.id ] = 1-based mapDeviceId
+      const deviceIdToMapId = {};
+      devices.forEach((d, idx) => {
+        deviceIdToMapId[d.id] = idx + 1;
+      });
+      // also set for your UI legend
+      setFetchedDevices(devices.map((d, idx) => ({ name: d.name, id: idx + 1 })));
 
-        if (
-          deviceLocationsResponse.success &&
-          ktxFilesResponse.success &&
-          appUsageResponse.success
-        ) {
-          const deviceLocations = deviceLocationsResponse.data.map((location) => ({
-            ...location,
-            timestamp: new Date(location.timestamp),
-            mapDeviceId: c,
-            deviceId: device.id
-          }))
-
-          const deviceKtxFiles = ktxFilesResponse.data.map((file) => ({
-            ...file,
-            timestamp: new Date(file.timestamp),
-            deviceId: device.id
-          }))
-
-          const deviceAppUsage = appUsageResponse.data.map((appUsage) => ({
-            ...appUsage,
-            startTime: new Date(appUsage.startTime),
-            endTime: new Date(appUsage.endTime),
-            deviceId: device.id
-          }))
-          console.log(deviceAppUsage)
-          allLocations.push(...deviceLocations)
-          allKtxFiles.push(...deviceKtxFiles)
-          allAppUsage.push(...deviceAppUsage)
-        }
-        setFetchedDevices((prevDevices) => [...prevDevices, { name: device.name, id: c }])
-        c += 1
-      }
-
-      console.log(fetchedDevices)
-      // Merge app usage data with locations
-      const matchedLocations = allLocations.map((location) => {
-        const matchingAppUsage = allAppUsage.find(
-          (appUsage) =>
-            appUsage.deviceId === location.deviceId &&
-            appUsage.startTime <= location.timestamp &&
-            appUsage.endTime >= location.timestamp
-        )
-        // console.log(location, matchingAppUsage)
-        return {
-          ...location,
-          appUsage: matchingAppUsage || null
-        }
-      })
-
-      setLocations(allLocations)
-      setKtxFiles(allKtxFiles)
-      matchKtxToLocations(matchedLocations, allKtxFiles)
-      // Fetch WiFi locations for the case
-      const wifiResponse = await ipcRenderer.invoke('get-wifi-locations', caseId)
+      // 2. Now fetch Wi-Fi locations and assign mapDeviceId
+      const wifiResponse = await ipcRenderer.invoke('get-wifi-locations', caseId);
       if (wifiResponse.success) {
         const wifiData = wifiResponse.data.map(w => ({
           ...w,
-          timestamp: new Date(w.timestamp)
-        }))
-        setWifiLocations(wifiData)
+          timestamp: new Date(w.timestamp),
+          deviceId: w.deviceId,
+          mapDeviceId: deviceIdToMapId[w.deviceId] ?? null,  // lookup or null
+        }));
+        console.log('Wi-Fi with map IDs:', wifiData);
+        setWifiLocations(wifiData);
       }
-    }
 
-    fetchData()
-  }, [isFileModalVisible])
+      // 3. Fetch your per-device locations, KTX files, app-usage…
+      const allLocations = [];
+      const allKtxFiles = [];
+      const allAppUsage = [];
+
+      for (const device of devices) {
+        const mapId = deviceIdToMapId[device.id];
+
+        // locations
+        const locRes = await ipcRenderer.invoke('get-device-locations', device.id);
+        if (locRes.success) {
+          const deviceLocations = locRes.data.map((loc) => ({
+            ...loc,
+            timestamp: new Date(loc.timestamp),
+            deviceId: device.id,
+            mapDeviceId: mapId,
+          }));
+          allLocations.push(...deviceLocations);
+        }
+
+        // ktx
+        const ktxRes = await ipcRenderer.invoke('get-ktx-files', device.id);
+        if (ktxRes.success) {
+          allKtxFiles.push(
+            ...ktxRes.data.map((f) => ({
+              ...f,
+              timestamp: new Date(f.timestamp),
+              deviceId: device.id,
+            }))
+          );
+        }
+
+        // app usage
+        const usageRes = await ipcRenderer.invoke('get-app-usage', device.id);
+        if (usageRes.success) {
+          allAppUsage.push(
+            ...usageRes.data.map((u) => ({
+              ...u,
+              startTime: new Date(u.startTime),
+              endTime: new Date(u.endTime),
+              deviceId: device.id,
+            }))
+          );
+        }
+      }
+
+      // 4. Merge app usage into your locations if needed
+      const matchedLocations = allLocations.map(loc => ({
+        ...loc,
+        appUsage:
+          allAppUsage.find(
+            u =>
+              u.deviceId === loc.deviceId &&
+              u.startTime <= loc.timestamp &&
+              u.endTime >= loc.timestamp
+          ) || null,
+      }));
+
+      setLocations(allLocations);
+      setKtxFiles(allKtxFiles);
+      matchKtxToLocations(matchedLocations, allKtxFiles);
+    };
+
+    fetchData();
+  }, [isFileModalVisible]);
+
 
   const togglePlayPause = () => {
     if (isPlaying) {
@@ -489,7 +499,7 @@ export default function Map({ onClose, caseId }) {
   const handleAreaModeToggle = () => {
     const newMode = !isAreaCreationMode;
     setIsAreaCreationMode(newMode);
-    
+
     if (newMode) {
       notificationApi.info({
         message: 'Area Creation Mode',
@@ -526,17 +536,17 @@ export default function Map({ onClose, caseId }) {
       style={{ insetInlineEnd: 24 }}
       icon={<SettingOutlined />}
     >
-      <FloatButton 
-        icon={<ControlOutlined />} 
-        onClick={handleSettingsModalOpen} 
+      <FloatButton
+        icon={<ControlOutlined />}
+        onClick={handleSettingsModalOpen}
         tooltip="Map Settings"
       />
-      <FloatButton 
-        icon={<AppstoreAddOutlined />}  
-        onClick={handleFileModalOpen} 
+      <FloatButton
+        icon={<AppstoreAddOutlined />}
+        onClick={handleFileModalOpen}
         tooltip="Select Devices"
       />
-      <FloatButton 
+      <FloatButton
         icon={<EnvironmentOutlined />}
         onClick={handleAreaModeToggle}
         tooltip={isAreaCreationMode ? "Cancel Area Creation" : "Create Area"}
@@ -547,7 +557,7 @@ export default function Map({ onClose, caseId }) {
 
   return (
     <div>
-            {contextHolder}
+      {contextHolder}
       {contextNotificationHolder}
 
       <Layout style={{ height: '100vh' }}>
@@ -568,7 +578,7 @@ export default function Map({ onClose, caseId }) {
                 style={{ marginRight: 16 }}
               />
             </Col>
-            <Image src={logo} width={150} preview={false}/>
+            <Image src={logo} width={150} preview={false} />
 
             <Col>
               <DatePicker showTime value={startDateTime} onChange={(date) => setStartDateTime(date)} placeholder="Start DateTime" />
@@ -590,27 +600,27 @@ export default function Map({ onClose, caseId }) {
         <Layout>
           <Row>
             <Col span={18}>
-              <MapContainer 
-                center={[40.454, -86.904]} 
-                zoom={mapSettings.defaultZoom} 
+              <MapContainer
+                center={[40.454, -86.904]}
+                zoom={mapSettings.defaultZoom}
                 style={{ width: '100%', height: 'calc(100vh - 64px)' }}
               >
                 {/* Custom component to handle map settings updates */}
-                <MapSettings 
-                  center={[40.454, -86.904]} 
+                <MapSettings
+                  center={[40.454, -86.904]}
                   zoom={mapSettings.defaultZoom}
                   autoCenterMap={mapSettings.autoCenterMap}
-                  currentLocation={filteredLocations[index]} 
+                  currentLocation={filteredLocations[index]}
                 />
-                
+
                 {/* Track map center for area creation */}
                 <MapCenterTracker setMapCenter={setMapCenter} />
-                
+
                 {/* Handle map clicks for area creation */}
                 <MapClickHandler enabled={isAreaCreationMode} onLocationSelect={handleMapClick} />
-                
+
                 <TileLayer url={mapTileLayerUrl} />
-                
+
                 {/* Map area creation mode indicator */}
                 {isAreaCreationMode && (
                   <div className="map-mode-indicator" style={{
@@ -633,7 +643,7 @@ export default function Map({ onClose, caseId }) {
                     </div>
                   </div>
                 )}
-                
+
                 <LayersControl position="topright">
                   <LayersControl.Overlay checked name="GPS Locations">
                     <LayerGroup>
@@ -687,9 +697,9 @@ export default function Map({ onClose, caseId }) {
                           </Popup>
                         </CustomMarker>
                       ))}
-                        {/* Show trails between points if enabled */}
+                      {/* Show trails between points if enabled */}
                       {mapSettings.showTrails && visibleLocations.length > 1 && (
-                        <PolylineDecorator 
+                        <PolylineDecorator
                           deviceData={(() => {
                             // Group locations by device ID
                             const groupedByDevice = visibleLocations.reduce((acc, location) => {
@@ -700,7 +710,7 @@ export default function Map({ onClose, caseId }) {
                               acc[deviceId].push([location.latitude, location.longitude]);
                               return acc;
                             }, {});
-                            
+
                             // Convert to array format with colors from colorSchemes
                             return Object.keys(groupedByDevice).map(deviceId => ({
                               id: deviceId,
@@ -718,8 +728,8 @@ export default function Map({ onClose, caseId }) {
                       {visibleWifiLocations.map((loc, idx) => (
                         <CustomMarker
                           key={idx}
-                          position={[loc.latitude, loc.longitude]} 
-                          mapDeviceId={loc.deviceId}
+                          position={[loc.latitude, loc.longitude]}
+                          mapDeviceId={loc.mapDeviceId}
                           markerSize={mapSettings.markerSize}
                           wifi={true}
                         >
@@ -746,7 +756,7 @@ export default function Map({ onClose, caseId }) {
                     </LayerGroup>
                   </LayersControl.Overlay>
                 </LayersControl>
-                
+
                 {/* Legend Card */}
                 <div style={{
                   position: 'absolute',
@@ -808,67 +818,67 @@ export default function Map({ onClose, caseId }) {
               </MapContainer>
             </Col>
             <Col span={6} >
-              <div style={{overflowY: 'auto', maxHeight: 'calc(100vh - 64px)'}}>
-              <Space
-                direction="vertical"
-                style={{ display: 'flex', justifyContent: 'center', alignItems: 'stretch', padding: 30, scroll:"auto" }}
-              >
-                {fetchedDevices.map((device) => (
-                  <>
-                    <Card
-                      title={
-                        <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-                          <div
-                            style={{
-                              backgroundColor: colorSchemes[device.id - 1].innerColor, // Dynamic value
-                              width: "30px",
-                              height: "30px",
-                              borderRadius: "50%",
-                              display: "flex",
-                              alignItems: "center",
-                              justifyContent: "center",
-                              color: "white",
-                              fontSize: "12px",
-                              fontWeight: "bold",
-                              border: `4px solid ${colorSchemes[device.id - 1].borderColorAbsent}`, // Dynamic value
-                            }}
-                          >
-                            {device.id}
-                          </div>
-                          <span>{device.name}</span>
-
-                        </div>
-                      }
-                    >
-
-                      <Row>
-                        <Col span={6}>
-                          <Image
-                            src={devicePngArray[device.id - 1] != undefined && (device.lastLocation != null && device.lastLocation.hasKtxFile) ? devicePngArray[device.id - 1] : ''}
-                            height={'100%'}
-                            fallback="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAMIAAADDCAYAAADQvc6UAAABRWlDQ1BJQ0MgUHJvZmlsZQAAKJFjYGASSSwoyGFhYGDIzSspCnJ3UoiIjFJgf8LAwSDCIMogwMCcmFxc4BgQ4ANUwgCjUcG3awyMIPqyLsis7PPOq3QdDFcvjV3jOD1boQVTPQrgSkktTgbSf4A4LbmgqISBgTEFyFYuLykAsTuAbJEioKOA7DkgdjqEvQHEToKwj4DVhAQ5A9k3gGyB5IxEoBmML4BsnSQk8XQkNtReEOBxcfXxUQg1Mjc0dyHgXNJBSWpFCYh2zi+oLMpMzyhRcASGUqqCZ16yno6CkYGRAQMDKMwhqj/fAIcloxgHQqxAjIHBEugw5sUIsSQpBobtQPdLciLEVJYzMPBHMDBsayhILEqEO4DxG0txmrERhM29nYGBddr//5/DGRjYNRkY/l7////39v///y4Dmn+LgeHANwDrkl1AuO+pmgAAADhlWElmTU0AKgAAAAgAAYdpAAQAAAABAAAAGgAAAAAAAqACAAQAAAABAAAAwqADAAQAAAABAAAAwwAAAAD9b/HnAAAHlklEQVR4Ae3dP3PTWBSGcbGzM6GCKqlIBRV0dHRJFarQ0eUT8LH4BnRU0NHR0UEFVdIlFRV7TzRksomPY8uykTk/zewQfKw/9znv4yvJynLv4uLiV2dBoDiBf4qP3/ARuCRABEFAoBEgghggQAQZQKAnYEaQBAQaASKIAQJEkAEEegJmBElAoBEgghggQAQZQKAnYEaQBAQaASKIAQJEkAEEegJmBElAoBEgghggQAQZQKAnYEaQBAQaASKIAQJEkAEEegJmBElAoBEgghggQAQZQKAnYEaQBAQaASKIAQJEkAEEegJmBElAoBEgghggQAQZQKAnYEaQBAQaASKIAQJEkAEEegJmBElAoBEgghggQAQZQKAnYEaQBAQaASKIAQJEkAEEegJmBElAoBEgghggQAQZQKAnYEaQBAQaASKIAQJEkAEEegJmBElAoBEgghggQAQZQKAnYEaQBAQaASKIAQJEkAEEegJmBElAoBEgghggQAQZQKAnYEaQBAQaASKIAQJEkAEEegJmBElAoBEgghggQAQZQKAnYEaQBAQaASKIAQJEkAEEegJmBElAoBEgghggQAQZQKAnYEaQBAQaASKIAQJEkAEEegJmBElAoBEgghggQAQZQKAnYEaQBAQaASKIAQJEkAEEegJmBElAoBEgghggQAQZQKAnYEaQBAQaASKIAQJEkAEEegJmBElAoBEgghggQAQZQKAnYEaQBAQaASKIAQJEkAEEegJmBElAoBEgghggQAQZQKAnYEaQBAQaASKIAQJEkAEEegJmBElAoBEgghggQAQZQKAnYEaQBAQaASKIAQJEkAEEegJmBElAoBEgghggQAQZQKAnYEaQBAQaASKIAQJEkAEEegJmBElAoBEgghggQAQZQKAnYEaQBAQaASKIAQJEkAEEegJmBElAoBEgghggQAQZQKAnYEaQBAQaASKIAQJEkAEEegJmBElAoBEgghggQAQZQKAnYEaQBAQaASKIAQJEkAEEegJmBElAoBEgghggQAQZQKAnYEaQBAQaASKIAQJEkAEEegJmBElAoBEgghggQAQZQKAnYEaQBAQaASKIAQJEkAEEegJmBElAoBEgghggQAQZQKAnYEaQBAQaASKIAQJEkAEEegJmBElAoBEgghggQAQZQKAnYEaQBAQaASKIAQJEkAEEegJmBElAoBEgghggQAQZQKAnYEaQBAQaASKIAQJEkAEEegJmBElAoBEgghggQAQZQKAnYEaQBAQaASKIAQJEkAEEegJmBElAoBEgghggQAQZQKAnYEaQBAQaASKIAQJEkAEEegJmBElAoBEgghggQAQZQKAnYEaQBAQaASKIAQJEkAEEegJmBElAoBEgghggQAQZQKAnYEaQBAQaASKIAQJEkAEEegJmBElAoBEgghggQAQZQKAnYEaQBAQaASKIAQJEkAEEegJmBElAoBEgghggQAQZQKAnYEaQBAQaASKIAQJEkAEEegJmBElAoBEgghgg0Aj8i0JO4OzsrPv69Wv+hi2qPHr0qNvf39+iI97soRIh4f3z58/u7du3SXX7Xt7Z2enevHmzfQe+oSN2apSAPj09TSrb+XKI/f379+08+A0cNRE2ANkupk+ACNPvkSPcAAEibACyXUyfABGm3yNHuAECRNgAZLuYPgEirKlHu7u7XdyytGwHAd8jjNyng4OD7vnz51dbPT8/7z58+NB9+/bt6jU/TI+AGWHEnrx48eJ/EsSmHzx40L18+fLyzxF3ZVMjEyDCiEDjMYZZS5wiPXnyZFbJaxMhQIQRGzHvWR7XCyOCXsOmiDAi1HmPMMQjDpbpEiDCiL358eNHurW/5SnWdIBbXiDCiA38/Pnzrce2YyZ4//59F3ePLNMl4PbpiL2J0L979+7yDtHDhw8vtzzvdGnEXdvUigSIsCLAWavHp/+qM0BcXMd/q25n1vF57TYBp0a3mUzilePj4+7k5KSLb6gt6ydAhPUzXnoPR0dHl79WGTNCfBnn1uvSCJdegQhLI1vvCk+fPu2ePXt2tZOYEV6/fn31dz+shwAR1sP1cqvLntbEN9MxA9xcYjsxS1jWR4AIa2Ibzx0tc44fYX/16lV6NDFLXH+YL32jwiACRBiEbf5KcXoTIsQSpzXx4N28Ja4BQoK7rgXiydbHjx/P25TaQAJEGAguWy0+2Q8PD6/Ki4R8EVl+bzBOnZY95fq9rj9zAkTI2SxdidBHqG9+skdw43borCXO/ZcJdraPWdv22uIEiLA4q7nvvCug8WTqzQveOH26fodo7g6uFe/a17W3+nFBAkRYENRdb1vkkz1CH9cPsVy/jrhr27PqMYvENYNlHAIesRiBYwRy0V+8iXP8+/fvX11Mr7L7ECueb/r48eMqm7FuI2BGWDEG8cm+7G3NEOfmdcTQw4h9/55lhm7DekRYKQPZF2ArbXTAyu4kDYB2YxUzwg0gi/41ztHnfQG26HbGel/crVrm7tNY+/1btkOEAZ2M05r4FB7r9GbAIdxaZYrHdOsgJ/wCEQY0J74TmOKnbxxT9n3FgGGWWsVdowHtjt9Nnvf7yQM2aZU/TIAIAxrw6dOnAWtZZcoEnBpNuTuObWMEiLAx1HY0ZQJEmHJ3HNvGCBBhY6jtaMoEiJB0Z29vL6ls58vxPcO8/zfrdo5qvKO+d3Fx8Wu8zf1dW4p/cPzLly/dtv9Ts/EbcvGAHhHyfBIhZ6NSiIBTo0LNNtScABFyNiqFCBChULMNNSdAhJyNSiECRCjUbEPNCRAhZ6NSiAARCjXbUHMCRMjZqBQiQIRCzTbUnAARcjYqhQgQoVCzDTUnQIScjUohAkQo1GxDzQkQIWejUogAEQo121BzAkTI2agUIkCEQs021JwAEXI2KoUIEKFQsw01J0CEnI1KIQJEKNRsQ80JECFno1KIABEKNdtQcwJEyNmoFCJAhELNNtScABFyNiqFCBChULMNNSdAhJyNSiECRCjUbEPNCRAhZ6NSiAARCjXbUHMCRMjZqBQiQIRCzTbUnAARcjYqhQgQoVCzDTUnQIScjUohAkQo1GxDzQkQIWejUogAEQo121BzAkTI2agUIkCEQs021JwAEXI2KoUIEKFQsw01J0CEnI1KIQJEKNRsQ80JECFno1KIABEKNdtQcwJEyNmoFCJAhELNNtScABFyNiqFCBChULMNNSdAhJyNSiECRCjUbEPNCRAhZ6NSiAARCjXbUHMCRMjZqBQiQIRCzTbUnAARcjYqhQgQoVCzDTUnQIScjUohAkQo1GxDzQkQIWejUogAEQo121BzAkTI2agUIkCEQs021JwAEXI2KoUIEKFQsw01J0CEnI1KIQJEKNRsQ80JECFno1KIABEKNdtQcwJEyNmoFCJAhELNNtScABFyNiqFCBChULMNNSdAhJyNSiEC/wGgKKC4YMA4TAAAAABJRU5ErkJggg=="
-                          />
-                        </Col>
-                        <Col span={18}>
-
-                          <div style={{ padding: 10 }}>
-                            <p>Speed: {device.lastLocation != null ? device.lastLocation.speed : ''} m/s</p>
-                            <p>Timestamp: {device.lastLocation != null ? device.lastLocation.timestamp.toLocaleString() : ''} </p>
-                            <p>Bundle Identifier: {device.lastLocation != null && device.lastLocation.appUsage != null ? device.lastLocation.appUsage.bundleIdentifier : ''} </p>
-                            <p>In Use Type: {device.lastLocation != null && device.lastLocation.appUsage != null ? device.lastLocation.appUsage.type : ''} </p>
-                            <p>In Use Application Start Time: {device.lastLocation != null && device.lastLocation.appUsage != null ? device.lastLocation.appUsage.startTime.toLocaleString() : ''} </p>
-                            <p>In Use Application End Time: {device.lastLocation != null && device.lastLocation.appUsage != null ? device.lastLocation.appUsage.endTime.toLocaleString() : ''} </p>
+              <div style={{ overflowY: 'auto', maxHeight: 'calc(100vh - 64px)' }}>
+                <Space
+                  direction="vertical"
+                  style={{ display: 'flex', justifyContent: 'center', alignItems: 'stretch', padding: 30, scroll: "auto" }}
+                >
+                  {fetchedDevices.map((device) => (
+                    <>
+                      <Card
+                        title={
+                          <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+                            <div
+                              style={{
+                                backgroundColor: colorSchemes[device.id - 1].innerColor, // Dynamic value
+                                width: "30px",
+                                height: "30px",
+                                borderRadius: "50%",
+                                display: "flex",
+                                alignItems: "center",
+                                justifyContent: "center",
+                                color: "white",
+                                fontSize: "12px",
+                                fontWeight: "bold",
+                                border: `4px solid ${colorSchemes[device.id - 1].borderColorAbsent}`, // Dynamic value
+                              }}
+                            >
+                              {device.id}
+                            </div>
+                            <span>{device.name}</span>
 
                           </div>
-                        </Col>
-                      </Row>
-                    </Card>
-                  </>
-                ))}
-              </Space>
+                        }
+                      >
+
+                        <Row>
+                          <Col span={6}>
+                            <Image
+                              src={devicePngArray[device.id - 1] != undefined && (device.lastLocation != null && device.lastLocation.hasKtxFile) ? devicePngArray[device.id - 1] : ''}
+                              height={'100%'}
+                              fallback="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAMIAAADDCAYAAADQvc6UAAABRWlDQ1BJQ0MgUHJvZmlsZQAAKJFjYGASSSwoyGFhYGDIzSspCnJ3UoiIjFJgf8LAwSDCIMogwMCcmFxc4BgQ4ANUwgCjUcG3awyMIPqyLsis7PPOq3QdDFcvjV3jOD1boQVTPQrgSkktTgbSf4A4LbmgqISBgTEFyFYuLykAsTuAbJEioKOA7DkgdjqEvQHEToKwj4DVhAQ5A9k3gGyB5IxEoBmML4BsnSQk8XQkNtReEOBxcfXxUQg1Mjc0dyHgXNJBSWpFCYh2zi+oLMpMzyhRcASGUqqCZ16yno6CkYGRAQMDKMwhqj/fAIcloxgHQqxAjIHBEugw5sUIsSQpBobtQPdLciLEVJYzMPBHMDBsayhILEqEO4DxG0txmrERhM29nYGBddr//5/DGRjYNRkY/l7////39v///y4Dmn+LgeHANwDrkl1AuO+pmgAAADhlWElmTU0AKgAAAAgAAYdpAAQAAAABAAAAGgAAAAAAAqACAAQAAAABAAAAwqADAAQAAAABAAAAwwAAAAD9b/HnAAAHlklEQVR4Ae3dP3PTWBSGcbGzM6GCKqlIBRV0dHRJFarQ0eUT8LH4BnRU0NHR0UEFVdIlFRV7TzRksomPY8uykTk/zewQfKw/9znv4yvJynLv4uLiV2dBoDiBf4qP3/ARuCRABEFAoBEgghggQAQZQKAnYEaQBAQaASKIAQJEkAEEegJmBElAoBEgghggQAQZQKAnYEaQBAQaASKIAQJEkAEEegJmBElAoBEgghggQAQZQKAnYEaQBAQaASKIAQJEkAEEegJmBElAoBEgghggQAQZQKAnYEaQBAQaASKIAQJEkAEEegJmBElAoBEgghggQAQZQKAnYEaQBAQaASKIAQJEkAEEegJmBElAoBEgghggQAQZQKAnYEaQBAQaASKIAQJEkAEEegJmBElAoBEgghggQAQZQKAnYEaQBAQaASKIAQJEkAEEegJmBElAoBEgghggQAQZQKAnYEaQBAQaASKIAQJEkAEEegJmBElAoBEgghggQAQZQKAnYEaQBAQaASKIAQJEkAEEegJmBElAoBEgghggQAQZQKAnYEaQBAQaASKIAQJEkAEEegJmBElAoBEgghggQAQZQKAnYEaQBAQaASKIAQJEkAEEegJmBElAoBEgghggQAQZQKAnYEaQBAQaASKIAQJEkAEEegJmBElAoBEgghggQAQZQKAnYEaQBAQaASKIAQJEkAEEegJmBElAoBEgghggQAQZQKAnYEaQBAQaASKIAQJEkAEEegJmBElAoBEgghggQAQZQKAnYEaQBAQaASKIAQJEkAEEegJmBElAoBEgghggQAQZQKAnYEaQBAQaASKIAQJEkAEEegJmBElAoBEgghggQAQZQKAnYEaQBAQaASKIAQJEkAEEegJmBElAoBEgghggQAQZQKAnYEaQBAQaASKIAQJEkAEEegJmBElAoBEgghggQAQZQKAnYEaQBAQaASKIAQJEkAEEegJmBElAoBEgghggQAQZQKAnYEaQBAQaASKIAQJEkAEEegJmBElAoBEgghggQAQZQKAnYEaQBAQaASKIAQJEkAEEegJmBElAoBEgghggQAQZQKAnYEaQBAQaASKIAQJEkAEEegJmBElAoBEgghggQAQZQKAnYEaQBAQaASKIAQJEkAEEegJmBElAoBEgghggQAQZQKAnYEaQBAQaASKIAQJEkAEEegJmBElAoBEgghggQAQZQKAnYEaQBAQaASKIAQJEkAEEegJmBElAoBEgghggQAQZQKAnYEaQBAQaASKIAQJEkAEEegJmBElAoBEgghggQAQZQKAnYEaQBAQaASKIAQJEkAEEegJmBElAoBEgghggQAQZQKAnYEaQBAQaASKIAQJEkAEEegJmBElAoBEgghggQAQZQKAnYEaQBAQaASKIAQJEkAEEegJmBElAoBEgghggQAQZQKAnYEaQBAQaASKIAQJEkAEEegJmBElAoBEgghggQAQZQKAnYEaQBAQaASKIAQJEkAEEegJmBElAoBEgghgg0Aj8i0JO4OzsrPv69Wv+hi2qPHr0qNvf39+iI97soRIh4f3z58/u7du3SXX7Xt7Z2enevHmzfQe+oSN2apSAPj09TSrb+XKI/f379+08+A0cNRE2ANkupk+ACNPvkSPcAAEibACyXUyfABGm3yNHuAECRNgAZLuYPgEirKlHu7u7XdyytGwHAd8jjNyng4OD7vnz51dbPT8/7z58+NB9+/bt6jU/TI+AGWHEnrx48eJ/EsSmHzx40L18+fLyzxF3ZVMjEyDCiEDjMYZZS5wiPXnyZFbJaxMhQIQRGzHvWR7XCyOCXsOmiDAi1HmPMMQjDpbpEiDCiL358eNHurW/5SnWdIBbXiDCiA38/Pnzrce2YyZ4//59F3ePLNMl4PbpiL2J0L979+7yDtHDhw8vtzzvdGnEXdvUigSIsCLAWavHp/+qM0BcXMd/q25n1vF57TYBp0a3mUzilePj4+7k5KSLb6gt6ydAhPUzXnoPR0dHl79WGTNCfBnn1uvSCJdegQhLI1vvCk+fPu2ePXt2tZOYEV6/fn31dz+shwAR1sP1cqvLntbEN9MxA9xcYjsxS1jWR4AIa2Ibzx0tc44fYX/16lV6NDFLXH+YL32jwiACRBiEbf5KcXoTIsQSpzXx4N28Ja4BQoK7rgXiydbHjx/P25TaQAJEGAguWy0+2Q8PD6/Ki4R8EVl+bzBOnZY95fq9rj9zAkTI2SxdidBHqG9+skdw43borCXO/ZcJdraPWdv22uIEiLA4q7nvvCug8WTqzQveOH26fodo7g6uFe/a17W3+nFBAkRYENRdb1vkkz1CH9cPsVy/jrhr27PqMYvENYNlHAIesRiBYwRy0V+8iXP8+/fvX11Mr7L7ECueb/r48eMqm7FuI2BGWDEG8cm+7G3NEOfmdcTQw4h9/55lhm7DekRYKQPZF2ArbXTAyu4kDYB2YxUzwg0gi/41ztHnfQG26HbGel/crVrm7tNY+/1btkOEAZ2M05r4FB7r9GbAIdxaZYrHdOsgJ/wCEQY0J74TmOKnbxxT9n3FgGGWWsVdowHtjt9Nnvf7yQM2aZU/TIAIAxrw6dOnAWtZZcoEnBpNuTuObWMEiLAx1HY0ZQJEmHJ3HNvGCBBhY6jtaMoEiJB0Z29vL6ls58vxPcO8/zfrdo5qvKO+d3Fx8Wu8zf1dW4p/cPzLly/dtv9Ts/EbcvGAHhHyfBIhZ6NSiIBTo0LNNtScABFyNiqFCBChULMNNSdAhJyNSiECRCjUbEPNCRAhZ6NSiAARCjXbUHMCRMjZqBQiQIRCzTbUnAARcjYqhQgQoVCzDTUnQIScjUohAkQo1GxDzQkQIWejUogAEQo121BzAkTI2agUIkCEQs021JwAEXI2KoUIEKFQsw01J0CEnI1KIQJEKNRsQ80JECFno1KIABEKNdtQcwJEyNmoFCJAhELNNtScABFyNiqFCBChULMNNSdAhJyNSiECRCjUbEPNCRAhZ6NSiAARCjXbUHMCRMjZqBQiQIRCzTbUnAARcjYqhQgQoVCzDTUnQIScjUohAkQo1GxDzQkQIWejUogAEQo121BzAkTI2agUIkCEQs021JwAEXI2KoUIEKFQsw01J0CEnI1KIQJEKNRsQ80JECFno1KIABEKNdtQcwJEyNmoFCJAhELNNtScABFyNiqFCBChULMNNSdAhJyNSiECRCjUbEPNCRAhZ6NSiAARCjXbUHMCRMjZqBQiQIRCzTbUnAARcjYqhQgQoVCzDTUnQIScjUohAkQo1GxDzQkQIWejUogAEQo121BzAkTI2agUIkCEQs021JwAEXI2KoUIEKFQsw01J0CEnI1KIQJEKNRsQ80JECFno1KIABEKNdtQcwJEyNmoFCJAhELNNtScABFyNiqFCBChULMNNSdAhJyNSiEC/wGgKKC4YMA4TAAAAABJRU5ErkJggg=="
+                            />
+                          </Col>
+                          <Col span={18}>
+
+                            <div style={{ padding: 10 }}>
+                              <p>Speed: {device.lastLocation != null ? device.lastLocation.speed : ''} m/s</p>
+                              <p>Timestamp: {device.lastLocation != null ? device.lastLocation.timestamp.toLocaleString() : ''} </p>
+                              <p>Bundle Identifier: {device.lastLocation != null && device.lastLocation.appUsage != null ? device.lastLocation.appUsage.bundleIdentifier : ''} </p>
+                              <p>In Use Type: {device.lastLocation != null && device.lastLocation.appUsage != null ? device.lastLocation.appUsage.type : ''} </p>
+                              <p>In Use Application Start Time: {device.lastLocation != null && device.lastLocation.appUsage != null ? device.lastLocation.appUsage.startTime.toLocaleString() : ''} </p>
+                              <p>In Use Application End Time: {device.lastLocation != null && device.lastLocation.appUsage != null ? device.lastLocation.appUsage.endTime.toLocaleString() : ''} </p>
+
+                            </div>
+                          </Col>
+                        </Row>
+                      </Card>
+                    </>
+                  ))}
+                </Space>
               </div>
             </Col>
-            
+
           </Row>
 
           <div
@@ -912,9 +922,9 @@ export default function Map({ onClose, caseId }) {
               <p>No additional information available</p>
             )}
           </Drawer>
-          
+
           {renderFloatButtons()}
-          
+
           <DeviceSelectionModal
             caseId={caseId}
             visible={isFileModalVisible}

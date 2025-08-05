@@ -26,18 +26,29 @@ export const CasesProvider = ({ children }) => {
     setCases(cases.map(c => c.id === updatedCase.id ? updatedCase : c))
   }
 
-  const deleteCase = (id) => {
-    setCases(cases.filter(c => c.id !== id))
-  }
+  const deleteCase = async (id) => {
+    try {
+      const result = await window.electron.ipcRenderer.invoke('delete-case', id);
+      if (result.success) {
+        setCases(prevCases => prevCases.filter(c => c.id !== id));
+      } else {
+        console.error('Failed to delete case:', result.error);
+        // Optionally show a UI message here
+      }
+    } catch (error) {
+      console.error('IPC error during case deletion:', error);
+      // Optionally show a UI message here
+    }
+  };
 
   return (
-    <CasesContext.Provider value={{ 
+    <CasesContext.Provider value={{
       cases,
       setCases,
-      addCase, 
-      getCaseById, 
-      updateCase, 
-      deleteCase 
+      addCase,
+      getCaseById,
+      updateCase,
+      deleteCase
     }}>
       {children}
     </CasesContext.Provider>

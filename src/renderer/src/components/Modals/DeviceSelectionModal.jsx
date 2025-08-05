@@ -3,7 +3,7 @@ import { Modal, Button, message } from 'antd'
 import DeviceListView from './DeviceListView'
 import AddDeviceFormView from './AddDeviceFormView'
 import ProcessingStepsView from './ProcessingStepsView'
-
+import { LoadingOutlined } from '@ant-design/icons'
 const { ipcRenderer } = window.require('electron')
 const fs = window.require('fs')
 const path = window.require('path')
