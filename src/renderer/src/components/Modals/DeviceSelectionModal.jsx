@@ -31,10 +31,12 @@ const DeviceSelectionModal = ({ visible, onClose, caseId }) => {
   const [currentStep, setCurrentStep] = useState(0)
   const [addedDeviceId, setAddedDeviceId] = useState(0)
 
-  // Load saved devices from the database on component mount
+  // Load saved devices from the database when modal becomes visible
   useEffect(() => {
-    ipcRenderer.invoke('get-devices', caseId).then((res) => setDevices(res.data))
-  }, [])
+    if (visible) {
+      ipcRenderer.invoke('get-devices', caseId).then((res) => setDevices(res.data))
+    }
+  }, [visible, caseId])
 
   const handleFileChange = (file) => {
     if (file.type.includes('zip')) {
@@ -165,11 +167,13 @@ const DeviceSelectionModal = ({ visible, onClose, caseId }) => {
       setCurrentStep(5)
       await sleep(2 * 1000)
 
+      // Add the new device to the existing list instead of refetching all
+      const newDeviceResponse = await ipcRenderer.invoke('get-devices', caseId);
+      setDevices(newDeviceResponse.data);
+
     } catch (error) {
       message.error(error.message || 'Error processing device')
     } finally {
-      ipcRenderer.invoke('get-devices', caseId).then((res) => setDevices(res.data))
-      console.log('Devices:', devices)
       setLoading(false)
       setIsAddingDevice(false)
     }
