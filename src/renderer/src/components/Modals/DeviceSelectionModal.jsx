@@ -210,6 +210,7 @@ const DeviceSelectionModal = ({ visible, onClose, caseId }) => {
           devices={devices}
           onRemoveDevice={removeDevice}
           onAddDevice={addDevice}
+          caseId={caseId}
         />
       )
     }

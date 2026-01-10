@@ -13,7 +13,9 @@ const MapLayers = ({
   areas,
   mapSettings,
   pngPath,
-  loadBase64Image
+  loadBase64Image,
+  onEditArea,
+  onDeleteArea
 }) => {
   return (
     <LayersControl position="topright">
@@ -118,7 +120,12 @@ const MapLayers = ({
       <LayersControl.Overlay checked name="Areas">
         <LayerGroup>
           {areas.map((area, index) => (
-            <CustomCircle key={index} area={area} />
+            <CustomCircle 
+              key={area.id || index} 
+              area={area} 
+              onEdit={onEditArea}
+              onDelete={onDeleteArea}
+            />
           ))}
         </LayerGroup>
       </LayersControl.Overlay>
