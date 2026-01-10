@@ -80,8 +80,8 @@ const MapSettingsModal = ({ visible, onClose, onSave, initialSettings }) => {
           <Slider min={10} max={50} step={5} marks={{ 10: 'Small', 30: 'Medium', 50: 'Large' }} />
         </Form.Item>
         
-        <Form.Item name="showAllDevices" label="Show all devices" valuePropName="checked">
-          <Switch />
+        <Form.Item name="showAllDevices" label="Show all devices (Under development)" valuePropName="checked">
+          <Switch disabled={true} />
         </Form.Item>
       </Form>
     </Modal>

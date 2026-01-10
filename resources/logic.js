@@ -838,8 +838,8 @@ async function processCacheSqliteDatabase(cacheSqlitePath, deviceId) {
 }
 
 // Updated handler to process database files with better step tracking and file path handling
-ipcMain.handle('process-database-files', async (event, { knowledgeCFile, cacheFile, deviceId }) => {
-  console.log('Processing database files:', { knowledgeCFile, cacheFile, deviceId });
+ipcMain.handle('process-database-files', async (event, { knowledgeCFiles, cacheFiles, deviceId }) => {
+  console.log('Processing database files:', { knowledgeCFiles, cacheFiles, deviceId });
   
   const results = {
     knowledgeC: null,
@@ -847,15 +847,27 @@ ipcMain.handle('process-database-files', async (event, { knowledgeCFile, cacheFi
   };
 
   try {
-    // Process KnowledgeC.db if provided
-    if (knowledgeCFile && knowledgeCFile.path) {
-      try {
-        // Update the frontend that we're starting this step
-        event.sender.send('database-processing-update', { 
-          step: 'knowledgeC', 
-          status: 'started',
-          message: `Processing KnowledgeC.db: ${knowledgeCFile.name || path.basename(knowledgeCFile.path)}...`
-        });
+    // Send device completion status (device was already created before this handler is called)
+    event.sender.send('database-processing-update', { 
+      step: 'device', 
+      status: 'completed',
+      message: 'Device record created successfully'
+    });
+
+    // Process KnowledgeC.db files if provided
+    if (knowledgeCFiles && knowledgeCFiles.length > 0) {
+      let totalKnowledgeCRecords = { focus: 0, usage: 0 };
+      
+      for (const knowledgeCFile of knowledgeCFiles) {
+        if (!knowledgeCFile.path) continue;
+        
+        try {
+          // Update the frontend that we're starting this step
+          event.sender.send('database-processing-update', { 
+            step: 'knowledgeC', 
+            status: 'started',
+            message: `Processing KnowledgeC.db: ${knowledgeCFile.name || path.basename(knowledgeCFile.path)}...`
+          });
         
         // Open the KnowledgeC database
         const knowledgeDb = new sqlite3.Database(knowledgeCFile.path, sqlite3.OPEN_READONLY, (err) => {
@@ -923,7 +935,7 @@ ipcMain.handle('process-database-files', async (event, { knowledgeCFile, cacheFi
         }));
 
         const usageData = usageRows.map((row) => ({
-          deviceId: deviceId.id,
+          deviceId: deviceId,
           bundleIdentifier: row['Bundle Identifier'],
           startTime: new Date((row['Start Time'] + IOS_TO_UNIX_EPOCH_OFFSET) * 1000),
           endTime: new Date((row['End Time'] + IOS_TO_UNIX_EPOCH_OFFSET) * 1000),
@@ -935,52 +947,52 @@ ipcMain.handle('process-database-files', async (event, { knowledgeCFile, cacheFi
 
         // Insert data into the database in batches
         const chunks = chunkArray(allData, 100);
-        let insertedCount = 0;
         
         for (const chunk of chunks) {
           await knex('application_data').insert(chunk);
-          insertedCount += chunk.length;
         }
+
+        totalKnowledgeCRecords.focus += focusData.length;
+        totalKnowledgeCRecords.usage += usageData.length;
 
         knowledgeDb.close();
         
-        results.knowledgeC = { 
-          success: true, 
-          count: insertedCount
-        };
-        
-        // Update the frontend that this step completed
-        event.sender.send('database-processing-update', { 
-          step: 'knowledgeC', 
-          status: 'completed',
-          result: results.knowledgeC
-        });
-      } catch (knowledgeError) {
-        console.error('Error processing KnowledgeC database:', knowledgeError);
-        results.knowledgeC = { 
-          success: false, 
-          error: knowledgeError instanceof Error ? knowledgeError.message : 'Unknown error' 
-        };
-        
-        // Update the frontend about the error
-        event.sender.send('database-processing-update', { 
-          step: 'knowledgeC', 
-          status: 'error',
-          error: results.knowledgeC.error
-        });
+      } catch (fileError) {
+        console.error(`Error processing KnowledgeC file ${knowledgeCFile.name}:`, fileError);
+        // Continue processing other files
       }
     }
+    
+    results.knowledgeC = { 
+      success: true, 
+      count: totalKnowledgeCRecords.focus + totalKnowledgeCRecords.usage
+    };
+    
+    // Update the frontend that this step completed
+    event.sender.send('database-processing-update', { 
+      step: 'knowledgeC', 
+      status: 'completed',
+      result: results.knowledgeC
+    });
+    }
 
-    // Process Cache.sqlite if provided
-    if (cacheFile && cacheFile.path) {
+    // Process Cache.sqlite files if provided
+    if (cacheFiles && cacheFiles.length > 0) {
       try {
-        // Update the frontend that we're starting this step
-        event.sender.send('database-processing-update', { 
-          step: 'cache', 
-          status: 'started',
-          message: `Processing Cache.sqlite: ${cacheFile.name || path.basename(cacheFile.path)}...`
-        });
+      let totalCacheRecords = 0;
+      
+      for (const cacheFile of cacheFiles) {
+        if (!cacheFile.path) continue;
         
+        try {
+          // Update the frontend that we're starting this step
+          event.sender.send('database-processing-update', { 
+            step: 'cache', 
+            status: 'started',
+            message: `Processing Cache.sqlite: ${cacheFile.name || path.basename(cacheFile.path)}...`
+          });
+        
+          
         // Open the Cache.sqlite database
         const cacheDb = new sqlite3.Database(cacheFile.path, sqlite3.OPEN_READONLY, (err) => {
           if (err) throw new Error(`Could not open Cache.sqlite: ${err.message}`);
@@ -1003,7 +1015,7 @@ ipcMain.handle('process-database-files', async (event, { knowledgeCFile, cacheFi
 
         // Process location data
         const locationData = locationRows.map((row) => ({
-          deviceId: deviceId.id,
+          deviceId: deviceId,
           latitude: row.latitude,
           longitude: row.longitude,
           speed: row.speed,
@@ -1014,43 +1026,47 @@ ipcMain.handle('process-database-files', async (event, { knowledgeCFile, cacheFi
 
         // Insert location data into the database in batches
         const chunks = chunkArray(locationData, 100);
-        let insertedCount = 0;
         
         for (const chunk of chunks) {
           await knex('device_locations').insert(chunk);
-          insertedCount += chunk.length;
         }
+
+        totalCacheRecords += locationData.length;
 
         cacheDb.close();
         
-        results.cache = { 
-          success: true, 
-          count: insertedCount
-        };
-        
-        // Update the frontend that this step completed
-        event.sender.send('database-processing-update', { 
-          step: 'cache', 
-          status: 'completed',
-          result: results.cache
-        });
-      } catch (cacheError) {
-        console.error('Error processing Cache.sqlite database:', cacheError);
-        results.cache = { 
-          success: false, 
-          error: cacheError instanceof Error ? cacheError.message : 'Unknown error' 
-        };
-        
-        // Update the frontend about the error
-        event.sender.send('database-processing-update', { 
-          step: 'cache', 
-          status: 'error',
-          error: results.cache.error
-        });
+      } catch (fileError) {
+        console.error(`Error processing Cache file ${cacheFile.name}:`, fileError);
+        // Continue processing other files
       }
     }
-
-
+    
+    results.cache = { 
+      success: true, 
+      count: totalCacheRecords
+    };
+    
+    // Update the frontend that this step completed
+    event.sender.send('database-processing-update', { 
+      step: 'cache', 
+      status: 'completed',
+      result: results.cache
+    });
+  } catch (cacheError) {
+    console.error('Error processing Cache.sqlite database:', cacheError);
+    results.cache = { 
+      success: false, 
+      error: cacheError instanceof Error ? cacheError.message : 'Unknown error' 
+    };
+    
+    // Update the frontend about the error
+    event.sender.send('database-processing-update', { 
+      step: 'cache', 
+      status: 'error',
+      error: results.cache.error
+    });
+  }
+}
     return { 
       success: true, 
       knowledgeC: results.knowledgeC, 
@@ -1137,3 +1153,52 @@ ipcMain.handle('delete-case', async (event, caseId) => {
   }
 });
 
+// ==================== Area Handlers ====================
+
+// Add a new area to a case
+ipcMain.handle('add-area', async (event, area) => {
+  try {
+    console.log('Adding new area:', area);
+    const [id] = await knex('areas').insert(area).returning('id');
+    return { success: true, id };
+  } catch (error) {
+    console.error('Error adding area:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+// Get all areas for a specific case
+ipcMain.handle('get-areas', async (event, caseId) => {
+  try {
+    const areas = await knex('areas').where('caseId', caseId).select();
+    console.log('Fetched areas for case', caseId, ':', areas);
+    return { success: true, data: areas };
+  } catch (error) {
+    console.error('Error fetching areas:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+// Update an existing area
+ipcMain.handle('update-area', async (event, { id, updates }) => {
+  try {
+    console.log('Updating area', id, 'with:', updates);
+    await knex('areas').where('id', id).update(updates);
+    return { success: true };
+  } catch (error) {
+    console.error('Error updating area:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+// Delete an area
+ipcMain.handle('delete-area', async (event, areaId) => {
+  try {
+    console.log('Deleting area:', areaId);
+    await knex('areas').where('id', areaId).del();
+    return { success: true };
+  } catch (error) {
+    console.error('Error deleting area:', error);
+    return { success: false, error: error.message };
+  }
+});

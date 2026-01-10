@@ -15,6 +15,8 @@ import {
 } from '@ant-design/icons';
 import { MapContainer, TileLayer, useMap, useMapEvents } from 'react-leaflet';
 
+const { ipcRenderer } = window.require('electron');
+
 // Components
 import MapHeader from './components/MapHeader';
 import MapLegend from './components/MapLegend';
@@ -99,6 +101,7 @@ const Map = ({ onClose, caseId }) => {
   const [isAreaCreationMode, setIsAreaCreationMode] = useState(false);
   const [mapCenter, setMapCenter] = useState({ lat: 40.454, lng: -86.904 });
   const [areas, setAreas] = useState([]);
+  const [editingArea, setEditingArea] = useState(null); // Track area being edited
 
   // Map settings
   const [mapSettings, setMapSettings] = useState({
@@ -111,6 +114,26 @@ const Map = ({ onClose, caseId }) => {
     markerSize: 30,
     showAllDevices: true
   });
+
+  // Load areas from database when component mounts or caseId changes
+  useEffect(() => {
+    const loadAreas = async () => {
+      if (!caseId) return;
+      
+      try {
+        const result = await ipcRenderer.invoke('get-areas', caseId);
+        if (result.success) {
+          setAreas(result.data || []);
+        } else {
+          console.error('Error loading areas:', result.error);
+        }
+      } catch (error) {
+        console.error('Error loading areas:', error);
+      }
+    };
+
+    loadAreas();
+  }, [caseId]);
 
   // Custom hooks
   const {
@@ -220,13 +243,77 @@ const Map = ({ onClose, caseId }) => {
   const handleMapClick = (location) => {
     setMapCenter(location);
     setIsAreaCreationMode(false);
+    setEditingArea(null); // Reset editing area when creating new
     setIsAreaModalVisible(true);
   };
 
-  const handleAreaModalClose = () => setIsAreaModalVisible(false);
-  const handleSaveArea = (newArea) => {
-    setAreas([...areas, newArea]);
-    messageApi.success(`Area "${newArea.name}" created successfully`);
+  const handleAreaModalClose = () => {
+    setIsAreaModalVisible(false);
+    setEditingArea(null); // Reset editing area on close
+  };
+  
+  const handleSaveArea = async (newArea) => {
+    try {
+      // Check if we're editing or creating
+      if (editingArea) {
+        // Update existing area
+        const result = await ipcRenderer.invoke('update-area', { 
+          id: editingArea.id, 
+          updates: newArea 
+        });
+        
+        if (result.success) {
+          setAreas(areas.map(area => 
+            area.id === editingArea.id ? { ...area, ...newArea } : area
+          ));
+          messageApi.success(`Area "${newArea.name}" updated successfully`);
+        } else {
+          messageApi.error(`Failed to update area: ${result.error}`);
+        }
+      } else {
+        // Add new area
+        const areaToSave = {
+          ...newArea,
+          caseId: caseId
+        };
+
+        const result = await ipcRenderer.invoke('add-area', areaToSave);
+        
+        if (result.success) {
+          const savedArea = { ...areaToSave, id: result.id };
+          setAreas([...areas, savedArea]);
+          messageApi.success(`Area "${newArea.name}" created successfully`);
+        } else {
+          messageApi.error(`Failed to save area: ${result.error}`);
+        }
+      }
+      
+      setEditingArea(null); // Reset after save
+    } catch (error) {
+      console.error('Error saving area:', error);
+      messageApi.error('Failed to save area');
+    }
+  };
+
+  const handleDeleteArea = async (areaId) => {
+    try {
+      const result = await ipcRenderer.invoke('delete-area', areaId);
+      
+      if (result.success) {
+        setAreas(areas.filter(area => area.id !== areaId));
+        messageApi.success('Area deleted successfully');
+      } else {
+        messageApi.error(`Failed to delete area: ${result.error}`);
+      }
+    } catch (error) {
+      console.error('Error deleting area:', error);
+      messageApi.error('Failed to delete area');
+    }
+  };
+
+  const handleEditArea = (area) => {
+    setEditingArea(area);
+    setIsAreaModalVisible(true);
   };
 
   const onCloseDrawer = () => {
@@ -336,6 +423,8 @@ const Map = ({ onClose, caseId }) => {
                   mapSettings={mapSettings}
                   pngPath={pngPath}
                   loadBase64Image={loadBase64Image}
+                  onEditArea={handleEditArea}
+                  onDeleteArea={handleDeleteArea}
                 />
 
                 <MapLegend fetchedDevices={fetchedDevices} />
@@ -399,6 +488,7 @@ const Map = ({ onClose, caseId }) => {
             onClose={handleAreaModalClose}
             onSave={handleSaveArea}
             currentMapCenter={mapCenter}
+            editingArea={editingArea}
           />
         </Layout>
       </Layout>

@@ -7,8 +7,8 @@ const { Dragger } = Upload
 const { Title, Text, Paragraph } = Typography
 
 const DatabaseFilesModal = ({ visible, onCancel, onSubmit, caseId }) => {
-  const [knowledgeCFile, setKnowledgeCFile] = useState(null)
-  const [cacheFile, setCacheFile] = useState(null)
+  const [knowledgeCFiles, setKnowledgeCFiles] = useState([])
+  const [cacheFiles, setCacheFiles] = useState([])
   const [deviceName, setDeviceName] = useState('')
   const [processing, setProcessing] = useState(false)
   const [currentStep, setCurrentStep] = useState(0)
@@ -40,16 +40,45 @@ const DatabaseFilesModal = ({ visible, onCancel, onSubmit, caseId }) => {
     const handleProcessingUpdate = (event, update) => {
       console.log('Processing update:', update);
       
-      // Update the processing status based on the step
-      setProcessingStatus(prevStatus => ({
-        ...prevStatus,
-        [update.step]: {
-          status: update.status,
-          message: update.message,
-          error: update.error,
-          result: update.result
+      // Update the processing status based on the step and check for completion
+      setProcessingStatus(prevStatus => {
+        const newStatus = {
+          ...prevStatus,
+          [update.step]: {
+            status: update.status,
+            message: update.message,
+            error: update.error,
+            result: update.result
+          }
+        };
+        
+        // Check if all steps are completed with the new status
+        const deviceCompleted = newStatus.device.status === 'completed';
+        const cacheCompleted = cacheFiles.length === 0 || newStatus.cache.status === 'completed' || newStatus.cache.status === 'error';
+        const knowledgeCCompleted = knowledgeCFiles.length === 0 || newStatus.knowledgeC.status === 'completed' || newStatus.knowledgeC.status === 'error';
+        
+        const allCompleted = deviceCompleted && cacheCompleted && knowledgeCCompleted;
+        
+        if (allCompleted) {
+          // Use setTimeout to ensure state updates happen after this render cycle
+          setTimeout(() => {
+            setCurrentStep(3); // Set to final step
+            setProcessing(false);
+            setProcessingComplete(true);
+            message.success('Database processing completed successfully');
+            
+            // Store the final results
+            setProcessingResults(prev => ({
+              ...prev,
+              deviceName,
+              knowledgeCResult: newStatus.knowledgeC?.result,
+              cacheResult: newStatus.cache?.result
+            }));
+          }, 0);
         }
-      }));
+        
+        return newStatus;
+      });
       
       // Show appropriate messages based on status
       if (update.status === 'error') {
@@ -66,16 +95,6 @@ const DatabaseFilesModal = ({ visible, onCancel, onSubmit, caseId }) => {
       } else if (update.step === 'knowledgeC' && update.status === 'started') {
         setCurrentStep(2);
       }
-      
-      // Check if all steps are completed
-      const allCompleted = checkAllStepsCompleted(update, prevStatus => ({
-        ...prevStatus,
-        [update.step]: { status: update.status }
-      }));
-      
-      if (allCompleted) {
-        setCurrentStep(3); // Set to final step
-      }
     };
     
     window.electron.ipcRenderer.on('database-processing-update', handleProcessingUpdate);
@@ -83,18 +102,7 @@ const DatabaseFilesModal = ({ visible, onCancel, onSubmit, caseId }) => {
     return () => {
       window.electron.ipcRenderer.removeListener('database-processing-update', handleProcessingUpdate);
     };
-  }, [processing, cacheFile, knowledgeCFile]);
-  
-  // Helper function to check if all required steps are completed
-  const checkAllStepsCompleted = (update, getUpdatedStatus) => {
-    const updatedStatus = getUpdatedStatus(processingStatus);
-    
-    const deviceCompleted = updatedStatus.device.status === 'completed';
-    const cacheCompleted = !cacheFile || updatedStatus.cache.status === 'completed' || updatedStatus.cache.status === 'error';
-    const knowledgeCCompleted = !knowledgeCFile || updatedStatus.knowledgeC.status === 'completed' || updatedStatus.knowledgeC.status === 'error';
-    
-    return deviceCompleted && cacheCompleted && knowledgeCCompleted;
-  };
+  }, [processing, cacheFiles, knowledgeCFiles, deviceName]);
 
   const handleSubmit = async () => {
     if (!deviceName.trim()) {
@@ -102,7 +110,7 @@ const DatabaseFilesModal = ({ visible, onCancel, onSubmit, caseId }) => {
       return;
     }
 
-    if (!knowledgeCFile && !cacheFile) {
+    if (knowledgeCFiles.length === 0 && cacheFiles.length === 0) {
       message.error('Please upload at least one database file');
       return;
     }
@@ -122,12 +130,15 @@ const DatabaseFilesModal = ({ visible, onCancel, onSubmit, caseId }) => {
         ...prev,
         device: { status: 'started', message: 'Creating device record...' }
       }));
-      console.log('Adding device with name:', deviceName, 'and caseId:', caseId);
-      const deviceResult = await window.electron.ipcRenderer.invoke('add-device', {
+      
+      const deviceData = {
         name: deviceName,
         created_at: new Date().toISOString(),
         caseId // Include the caseId here
-      });
+      };
+      
+      console.log('Adding device with data:', deviceData);
+      const deviceResult = await window.electron.ipcRenderer.invoke('add-device', deviceData);
       
       if (!deviceResult.success) {
         throw new Error(`Failed to add device: ${deviceResult.error}`);
@@ -150,18 +161,18 @@ const DatabaseFilesModal = ({ visible, onCancel, onSubmit, caseId }) => {
       };
       
       // Only include the files we have, with their full path information
-      if (knowledgeCFile) {
-        processData.knowledgeCFile = {
-          path: knowledgeCFile.path || knowledgeCFile.originFileObj?.path,
-          name: knowledgeCFile.name
-        };
+      if (knowledgeCFiles.length > 0) {
+        processData.knowledgeCFiles = knowledgeCFiles.map(file => ({
+          path: file.path || file.originFileObj?.path,
+          name: file.name
+        }));
       }
       
-      if (cacheFile) {
-        processData.cacheFile = {
-          path: cacheFile.path || cacheFile.originFileObj?.path,
-          name: cacheFile.name
-        };
+      if (cacheFiles.length > 0) {
+        processData.cacheFiles = cacheFiles.map(file => ({
+          path: file.path || file.originFileObj?.path,
+          name: file.name
+        }));
       }
       
       console.log('Sending process data:', processData);
@@ -172,22 +183,8 @@ const DatabaseFilesModal = ({ visible, onCancel, onSubmit, caseId }) => {
         throw new Error(`Failed to process databases: ${result.error}`);
       }
       
-      // Wait a moment to show completion
-      setTimeout(() => {
-        message.success('Database processing completed successfully');
-        
-        // Store the results but don't close the modal yet
-        setProcessingResults({
-          deviceId: deviceResult.id,
-          deviceName,
-          knowledgeCResult: result.knowledgeC,
-          cacheResult: result.cache
-        });
-        
-        // Mark processing as complete, but keep the modal open
-        setProcessing(false);
-        setProcessingComplete(true);
-      }, 1000);
+      // Don't mark as complete here - wait for the IPC events to confirm completion
+      // The handleProcessingUpdate will set processingComplete when all steps are done
       
     } catch (error) {
       console.error('Error processing database files:', error);
@@ -203,42 +200,45 @@ const DatabaseFilesModal = ({ visible, onCancel, onSubmit, caseId }) => {
     onSubmit(processingResults);
     
     // Reset the state
-    setKnowledgeCFile(null);
-    setCacheFile(null);
+    setKnowledgeCFiles([]);
+    setCacheFiles([]);
     setDeviceName('');
     setCurrentStep(0);
     setProcessingComplete(false);
   };
 
   const uploadProps = (fileType) => ({
-    onRemove: () => {
+    multiple: true,
+    onRemove: (file) => {
       if (fileType === 'knowledgeC') {
-        setKnowledgeCFile(null);
+        setKnowledgeCFiles(prevFiles => prevFiles.filter(f => f.uid !== file.uid));
       } else {
-        setCacheFile(null);
+        setCacheFiles(prevFiles => prevFiles.filter(f => f.uid !== file.uid));
       }
     },
     beforeUpload: (file) => {
       // Store the full file object with path information
       console.log('File object:', file);
+      console.log('File path:', file.path);
+      console.log('File name:', file.name);
+      
+      // Create a proper file object that Ant Design can display
+      const fileWithPath = {
+        uid: file.uid || `${Date.now()}-${file.name}`,
+        name: file.name,
+        status: 'done',
+        path: file.path || file.name,
+        originFileObj: file
+      };
       
       if (fileType === 'knowledgeC') {
-        // In Electron, the file object should have path property
-        setKnowledgeCFile({
-          ...file,
-          path: file.path || window.electron.path?.resolve(file.path) || file.name
-        });
+        setKnowledgeCFiles(prevFiles => [...prevFiles, fileWithPath]);
       } else {
-        setCacheFile({
-          ...file,
-          path: file.path || window.electron.path?.resolve(file.path) || file.name
-        });
+        setCacheFiles(prevFiles => [...prevFiles, fileWithPath]);
       }
       return false; // Prevent auto upload
     },
-    fileList: fileType === 'knowledgeC' 
-      ? (knowledgeCFile ? [knowledgeCFile] : []) 
-      : (cacheFile ? [cacheFile] : [])
+    fileList: fileType === 'knowledgeC' ? knowledgeCFiles : cacheFiles
   });
   
   // Render processing status details
@@ -246,7 +246,7 @@ const DatabaseFilesModal = ({ visible, onCancel, onSubmit, caseId }) => {
     return (
       <Space direction="vertical" style={{ width: '100%', marginTop: '20px' }}>
         {Object.entries(processingStatus).map(([key, status]) => {
-          if ((key === 'cache' && !cacheFile) || (key === 'knowledgeC' && !knowledgeCFile)) {
+          if ((key === 'cache' && cacheFiles.length === 0) || (key === 'knowledgeC' && knowledgeCFiles.length === 0)) {
             return null;
           }
           
@@ -345,11 +345,11 @@ const DatabaseFilesModal = ({ visible, onCancel, onSubmit, caseId }) => {
 
           <div>
             <Title level={5}>KnowledgeC Database</Title>
-            <Dragger {...uploadProps('knowledgeC')} accept=".sqlite,.db">
+            <Dragger {...uploadProps('knowledgeC')} accept=".sqlite,.db,.db-wal">
               <p className="ant-upload-drag-icon">
                 <InboxOutlined />
               </p>
-              <p className="ant-upload-text">Click or drag KnowledgeC.db file to upload</p>
+              <p className="ant-upload-text">Click or drag KnowledgeC.db files to upload (multiple files supported)</p>
               <p className="ant-upload-hint">
                 Located in /private/var/mobile/Library/CoreDuet/Knowledge/
               </p>
@@ -358,11 +358,11 @@ const DatabaseFilesModal = ({ visible, onCancel, onSubmit, caseId }) => {
 
           <div>
             <Title level={5}>Cache.sqlite Database</Title>
-            <Dragger {...uploadProps('cache')} accept=".sqlite,.db">
+            <Dragger {...uploadProps('cache')} accept=".sqlite,.db,.db-wal">
               <p className="ant-upload-drag-icon">
                 <InboxOutlined />
               </p>
-              <p className="ant-upload-text">Click or drag Cache.sqlite file to upload</p>
+              <p className="ant-upload-text">Click or drag Cache.sqlite files to upload (multiple files supported)</p>
               <p className="ant-upload-hint">
                 Located in /private/var/mobile/Library/Caches/
               </p>

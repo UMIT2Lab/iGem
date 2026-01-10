@@ -212,4 +212,34 @@ knex.schema
     console.error('Error setting up wifi_locations table:', error)
   })
 
+// Create the 'areas' table if it doesn't exist
+knex.schema
+  .hasTable('areas')
+  .then((exists) => {
+    if (!exists) {
+      return knex.schema.createTable('areas', (table) => {
+        table.increments('id').primary() // Auto-increment primary key
+        table
+          .integer('caseId')
+          .unsigned()
+          .notNullable()
+          .references('id')
+          .inTable('cases')
+          .onDelete('CASCADE')
+        table.string('name').notNullable() // Area name
+        table.float('latitude').notNullable() // Center latitude
+        table.float('longitude').notNullable() // Center longitude
+        table.float('radius').notNullable() // Radius in meters
+        table.string('color').notNullable().defaultTo('#3388ff') // Circle color
+        table.timestamp('createdAt').defaultTo(knex.fn.now()) // Timestamp for when the area was created
+      })
+    }
+  })
+  .then(() => {
+    console.log('Areas table setup complete.')
+  })
+  .catch((error) => {
+    console.error('Error setting up areas table:', error)
+  })
+
 module.exports = knex

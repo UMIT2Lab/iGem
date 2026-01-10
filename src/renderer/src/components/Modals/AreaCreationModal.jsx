@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { Modal, Input, InputNumber, Button, ColorPicker, message } from 'antd'
 
-const AreaCreationModal = ({ visible, onClose, onSave, currentMapCenter }) => {
+const AreaCreationModal = ({ visible, onClose, onSave, currentMapCenter, editingArea }) => {
   const [areaName, setAreaName] = useState('')
   const [radius, setRadius] = useState(500)
   const [latitude, setLatitude] = useState('')
@@ -9,13 +9,20 @@ const AreaCreationModal = ({ visible, onClose, onSave, currentMapCenter }) => {
   const [color, setColor] = useState('#3388ff')
   const [messageApi, contextHolder] = message.useMessage()
 
-  // Update coordinates when map center changes
+  // Update form when editing an existing area
   useEffect(() => {
-    if (currentMapCenter && visible) {
+    if (editingArea && visible) {
+      setAreaName(editingArea.name)
+      setRadius(editingArea.radius)
+      setLatitude(editingArea.latitude)
+      setLongitude(editingArea.longitude)
+      setColor(editingArea.color || '#3388ff')
+    } else if (currentMapCenter && visible && !editingArea) {
+      // Only update coordinates from map center when creating new area
       setLatitude(currentMapCenter.lat)
       setLongitude(currentMapCenter.lng)
     }
-  }, [currentMapCenter, visible])
+  }, [currentMapCenter, visible, editingArea])
 
   const handleSave = () => {
     if (!areaName || !radius || !latitude || !longitude) {
@@ -23,7 +30,7 @@ const AreaCreationModal = ({ visible, onClose, onSave, currentMapCenter }) => {
       return
     }
 
-    const newArea = {
+    const areaData = {
       name: areaName,
       radius: Number(radius),
       latitude: Number(latitude),
@@ -31,7 +38,7 @@ const AreaCreationModal = ({ visible, onClose, onSave, currentMapCenter }) => {
       color: color
     }
 
-    onSave(newArea)
+    onSave(areaData)
     resetForm()
     onClose()
   }
@@ -60,7 +67,7 @@ const AreaCreationModal = ({ visible, onClose, onSave, currentMapCenter }) => {
     <>
       {contextHolder}
       <Modal
-        title="Create Area"
+        title={editingArea ? "Edit Area" : "Create Area"}
         open={visible}
         onCancel={handleCancel}
         footer={[
@@ -68,7 +75,7 @@ const AreaCreationModal = ({ visible, onClose, onSave, currentMapCenter }) => {
             Cancel
           </Button>,
           <Button key="save" type="primary" onClick={handleSave}>
-            Save
+            {editingArea ? "Update" : "Save"}
           </Button>
         ]}
       >
