@@ -510,6 +510,57 @@ async function extractFileFromZip(zipFilePath, targetFilePathInZip, outputDir) {
   })
 }
 
+// Extract all files matching a pattern from ZIP in a single pass
+async function extractMatchingFilesFromZip(zipFilePath, targetPattern, outputDir) {
+  return new Promise((resolve, reject) => {
+    const extractedFiles = []
+    
+    yauzl.open(zipFilePath, { decodeStrings: false, lazyEntries: true }, (err, zipfile) => {
+      if (err) return reject(err)
+
+      zipfile.readEntry()
+      zipfile.on('entry', (entry) => {
+        const decodedFileName = entry.fileName.toString("utf8");
+        
+        if (targetPattern.test(decodedFileName)) {
+          const extractedFilePath = path.join(outputDir, path.basename(decodedFileName))
+          
+          zipfile.openReadStream(entry, (err, readStream) => {
+            if (err) {
+              console.error('Error opening stream:', err)
+              return zipfile.readEntry()
+            }
+
+            const writeStream = fs.createWriteStream(extractedFilePath)
+            readStream.pipe(writeStream)
+
+            writeStream.on('finish', () => {
+              extractedFiles.push(extractedFilePath)
+              zipfile.readEntry()
+            })
+
+            writeStream.on('error', (writeErr) => {
+              console.error('Error writing file:', writeErr)
+              zipfile.readEntry()
+            })
+          })
+        } else {
+          zipfile.readEntry() // Skip non-matching files
+        }
+      })
+
+      zipfile.on('end', () => {
+        zipfile.close()
+        resolve(extractedFiles)
+      })
+
+      zipfile.on('error', (zipErr) => {
+        reject(zipErr)
+      })
+    })
+  })
+}
+
 function chunkArray(array, size) {
   const result = []
   for (let i = 0; i < array.length; i += size) {
@@ -520,39 +571,56 @@ function chunkArray(array, size) {
 
 ipcMain.handle('process-zip-file', async (event, { icon, zipFilePath, extractDir, deviceId }) => {
   try {
+    console.log('=== Starting ZIP file processing ===');
+    console.log('Device ID:', deviceId);
+    console.log('Extract directory:', extractDir);
+    console.log('Provided zipFilePath:', zipFilePath);
+    
     // Get the device to access all image paths
     const device = await knex('devices').where('id', deviceId.id).first();
+    if (!device) {
+      throw new Error(`Device with ID ${deviceId.id} not found in database`);
+    }
+    console.log('Device found:', device.name);
+    
     let imagePaths = [];
     
     // Parse the stored imagePaths if available
     if (device.imagePaths) {
       try {
         imagePaths = JSON.parse(device.imagePaths);
+        console.log('Parsed imagePaths from device:', imagePaths);
       } catch (e) {
         console.error('Error parsing imagePaths:', e);
         if (device.imagePath) {
           imagePaths = [device.imagePath];
+          console.log('Falling back to single imagePath:', device.imagePath);
         }
       }
     } else if (device.imagePath) {
       imagePaths = [device.imagePath];
+      console.log('Using single imagePath:', device.imagePath);
     }
     
     // If zipFilePath is provided directly, prioritize that
     if (zipFilePath && !imagePaths.includes(zipFilePath)) {
       imagePaths.unshift(zipFilePath);
+      console.log('Added provided zipFilePath to beginning of list');
     }
     
     if (imagePaths.length === 0) {
       throw new Error('No image paths found for processing');
     }
+    console.log('Total zip files to try:', imagePaths.length);
 
-    const targetFilePathInZip = /.*\/private\/var\/mobile\/Library\/Caches\/com\.apple\.routined\/Cache\.sqlite/;
-    const target2FilePathInZip = /.*\/private\/var\/mobile\/Library\/Caches\/com\.apple\.routined\/Cache\.sqlite(-wal)?/;
+    const targetFilePathInZip = /.*\/private\/var\/mobile\/Library\/Caches\/com\.apple\.routined\/Cache\.sqlite.*$/;
 
     // Create the extraction directory if it doesn't exist
     if (!fs.existsSync(extractDir)) {
+      console.log('Creating extraction directory:', extractDir);
       fs.mkdirSync(extractDir, { recursive: true });
+    } else {
+      console.log('Extraction directory already exists:', extractDir);
     }
     
     // Try each zip file until we find the target files
@@ -562,14 +630,58 @@ ipcMain.handle('process-zip-file', async (event, { icon, zipFilePath, extractDir
     
     for (const zipPath of imagePaths) {
       try {
-        console.log(`Trying to extract from: ${zipPath}`);
-        extractedDbPath = await extractFileFromZip(zipPath, targetFilePathInZip, extractDir);
-        extractedDbPath2 = await extractFileFromZip(zipPath, target2FilePathInZip, extractDir);
+        console.log(`\n--- Attempting extraction from: ${zipPath} ---`);
+        
+        // Check if zip file exists
+        if (!fs.existsSync(zipPath)) {
+          console.error(`ZIP file does not exist: ${zipPath}`);
+          continue;
+        }
+        
+        const zipStats = fs.statSync(zipPath);
+        console.log(`ZIP file size: ${zipStats.size} bytes (${(zipStats.size / 1024 / 1024).toFixed(2)} MB)`);
+        
+        if (zipStats.size === 0) {
+          console.error(`ZIP file is empty: ${zipPath}`);
+          continue;
+        }
+        
+        console.log('Extracting Cache.sqlite and related files...');
+        const extractedFiles = await extractMatchingFilesFromZip(zipPath, targetFilePathInZip, extractDir);
+        
+        if (extractedFiles.length === 0) {
+          throw new Error('Cache.sqlite not found in ZIP archive');
+        }
+        
+        // Find the main database file and WAL file
+        for (const filePath of extractedFiles) {
+          const fileName = path.basename(filePath);
+          if (fileName === 'Cache.sqlite') {
+            extractedDbPath = filePath;
+          } else if (fileName === 'Cache.sqlite-wal') {
+            extractedDbPath2 = filePath;
+          }
+          
+          const fileStats = fs.statSync(filePath);
+          console.log(`Extracted ${fileName}: ${fileStats.size} bytes (${(fileStats.size / 1024 / 1024).toFixed(2)} MB)`);
+        }
+        
+        // Verify main database file
+        if (!extractedDbPath) {
+          throw new Error(`Cache.sqlite not found (extracted: ${extractedFiles.map(f => path.basename(f)).join(', ')})`);
+        }
+        
+        const extractedStats = fs.statSync(extractedDbPath);
+        if (extractedStats.size === 0) {
+          throw new Error(`Extracted Cache.sqlite file is empty (0 bytes)`);
+        }
+        
         successfulZipPath = zipPath;
-        console.log(`Successfully extracted from: ${zipPath}`);
+        console.log(`✓ Successfully extracted from: ${zipPath}`);
         break; // Exit the loop if extraction is successful
       } catch (zipError) {
-        console.log(`Could not extract target files from ${zipPath}: ${zipError.message}`);
+        console.error(`✗ Could not extract target files from ${zipPath}:`, zipError.message);
+        console.error('Error stack:', zipError.stack);
         // Continue to the next zip file
       }
     }
@@ -578,54 +690,141 @@ ipcMain.handle('process-zip-file', async (event, { icon, zipFilePath, extractDir
       throw new Error('Could not find the target file in any of the provided zip files');
     }
 
+    console.log('\n=== Opening SQLite database ===');
+    console.log('Database path:', extractedDbPath);
+    
     // Open the extracted SQLite database and read data from ZRTCLLOCATIONMO
     const cacheDb = new sqlite3.Database(extractedDbPath, sqlite3.OPEN_READONLY, (err) => {
-      if (err) throw new Error(`Could not open Cache.sqlite: ${err.message}`);
+      if (err) {
+        console.error('Failed to open database:', err.message);
+        throw new Error(`Could not open Cache.sqlite: ${err.message}`);
+      }
+      console.log('Database opened successfully');
     });
-
-    const query = `SELECT ZLATITUDE AS latitude, ZLONGITUDE AS longitude, ZSPEED AS speed, 
-                      ZVERTICALACCURACY AS verticalAccuracy, ZHORIZONTALACCURACY AS horizontalAccuracy, 
-                      ZTIMESTAMP AS timestamp FROM ZRTCLLOCATIONMO`;
-
+    
+    // Verify database integrity
     return new Promise((resolve, reject) => {
-      cacheDb.all(query, async (err, rows) => {
+      // First check if the database has the expected table
+      cacheDb.get("SELECT name FROM sqlite_master WHERE type='table' AND name='ZRTCLLOCATIONMO'", (err, row) => {
         if (err) {
-          console.error('Error querying ZRTCLLOCATIONMO:', err.message);
-          return reject({ success: false, error: err.message });
-        }
-
-        // Process each row and adjust the timestamp
-        const locationData = rows.map((row) => ({
-          deviceId: deviceId.id,
-          latitude: row.latitude,
-          longitude: row.longitude,
-          speed: row.speed,
-          verticalAccuracy: row.verticalAccuracy,
-          horizontalAccuracy: row.horizontalAccuracy,
-          timestamp: new Date((row.timestamp + IOS_TO_UNIX_EPOCH_OFFSET) * 1000) // Convert iOS time to Unix time
-        }));
-
-        // Insert in batches to avoid "too many terms in compound SELECT"
-        const chunks = chunkArray(locationData, 100); // Adjust the batch size as needed
-        try {
-          for (const chunk of chunks) {
-            await knex('device_locations').insert(chunk);
-          }
-          resolve({ 
-            success: true, 
-            message: 'Data successfully transferred to device_locations',
-            sourceZip: successfulZipPath
-          });
-        } catch (insertError) {
-          console.error('Error inserting into device_locations:', insertError.message);
-          reject({ success: false, error: insertError.message });
-        } finally {
+          console.error('Error checking for ZRTCLLOCATIONMO table:', err.message);
           cacheDb.close();
+          return reject({ success: false, error: `Database error: ${err.message}` });
         }
+        
+        if (!row) {
+          console.error('ZRTCLLOCATIONMO table not found in database');
+          console.log('Listing all tables in database...');
+          cacheDb.all("SELECT name FROM sqlite_master WHERE type='table'", (err, tables) => {
+            if (err) {
+              console.error('Error listing tables:', err.message);
+            } else {
+              console.log('Available tables:', tables.map(t => t.name).join(', '));
+            }
+            cacheDb.close();
+            reject({ success: false, error: 'ZRTCLLOCATIONMO table not found in database. Database may be corrupted or incorrect.' });
+          });
+          return;
+        }
+        
+        console.log('✓ ZRTCLLOCATIONMO table found');
+        
+        // Check row count first
+        cacheDb.get("SELECT COUNT(*) as count FROM ZRTCLLOCATIONMO", (err, countResult) => {
+          if (err) {
+            console.error('Error counting rows:', err.message);
+            cacheDb.close();
+            return reject({ success: false, error: `Error counting rows: ${err.message}` });
+          }
+          
+          console.log(`Total rows in ZRTCLLOCATIONMO: ${countResult.count}`);
+          
+          if (countResult.count === 0) {
+            console.warn('WARNING: ZRTCLLOCATIONMO table is empty');
+            cacheDb.close();
+            return resolve({ 
+              success: true, 
+              message: 'Database extracted successfully but contains no location data',
+              sourceZip: successfulZipPath,
+              rowCount: 0
+            });
+          }
+          
+          // Proceed with data extraction
+          console.log('\n=== Querying location data ===');
+          const query = `SELECT ZLATITUDE AS latitude, ZLONGITUDE AS longitude, ZSPEED AS speed, 
+                            ZVERTICALACCURACY AS verticalAccuracy, ZHORIZONTALACCURACY AS horizontalAccuracy, 
+                            ZTIMESTAMP AS timestamp FROM ZRTCLLOCATIONMO`;
+
+          cacheDb.all(query, async (err, rows) => {
+            if (err) {
+              console.error('Error querying ZRTCLLOCATIONMO:', err.message);
+              cacheDb.close();
+              return reject({ success: false, error: err.message });
+            }
+
+            console.log(`Retrieved ${rows.length} location records from database`);
+            
+            if (rows.length === 0) {
+              console.warn('Query returned 0 rows');
+              cacheDb.close();
+              return resolve({ 
+                success: true, 
+                message: 'No location data found in database',
+                sourceZip: successfulZipPath,
+                rowCount: 0
+              });
+            }
+            
+            // Log sample of first row
+            console.log('Sample data (first row):', JSON.stringify(rows[0], null, 2));
+
+            // Process each row and adjust the timestamp
+            const locationData = rows.map((row) => ({
+              deviceId: deviceId.id,
+              latitude: row.latitude,
+              longitude: row.longitude,
+              speed: row.speed,
+              verticalAccuracy: row.verticalAccuracy,
+              horizontalAccuracy: row.horizontalAccuracy,
+              timestamp: new Date((row.timestamp + IOS_TO_UNIX_EPOCH_OFFSET) * 1000) // Convert iOS time to Unix time
+            }));
+
+            console.log('\n=== Inserting data into device_locations ===');
+            // Insert in batches to avoid "too many terms in compound SELECT"
+            const chunks = chunkArray(locationData, 100); // Adjust the batch size as needed
+            console.log(`Inserting ${locationData.length} records in ${chunks.length} batches`);
+            
+            try {
+              let insertedCount = 0;
+              for (const chunk of chunks) {
+                await knex('device_locations').insert(chunk);
+                insertedCount += chunk.length;
+                console.log(`Inserted batch: ${insertedCount}/${locationData.length} records`);
+              }
+              console.log('✓ All data successfully inserted');
+              resolve({ 
+                success: true, 
+                message: 'Data successfully transferred to device_locations',
+                sourceZip: successfulZipPath,
+                rowCount: locationData.length
+              });
+            } catch (insertError) {
+              console.error('Error inserting into device_locations:', insertError.message);
+              console.error('Insert error stack:', insertError.stack);
+              reject({ success: false, error: insertError.message });
+            } finally {
+              cacheDb.close();
+              console.log('Database connection closed');
+            }
+          });
+        });
       });
     });
   } catch (error) {
-    console.error('Error processing ZIP file:', error);
+    console.error('=== FATAL ERROR processing ZIP file ===');
+    console.error('Error message:', error.message);
+    console.error('Error stack:', error.stack);
     return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
   }
 });
