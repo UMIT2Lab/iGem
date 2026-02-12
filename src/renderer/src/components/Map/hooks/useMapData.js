@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 
 const { ipcRenderer } = window.require('electron');
 
@@ -8,6 +8,7 @@ export const useMapData = (caseId, isFileModalVisible) => {
   const [ktxFiles, setKtxFiles] = useState([]);
   const [matchedLocations, setMatchedLocations] = useState([]);
   const [fetchedDevices, setFetchedDevices] = useState([]);
+  const wasFileModalVisibleRef = useRef(isFileModalVisible);
 
   const matchKtxToLocations = (locations, ktxFiles) => {
     const matchedKtxFiles = new Set();
@@ -48,118 +49,115 @@ export const useMapData = (caseId, isFileModalVisible) => {
     return sortedMatchedLocations;
   };
 
-  // Separate effect for initial data loading
-  useEffect(() => {
-    const fetchData = async () => {
-      try {
-        // Fetch devices
-        const devicesResponse = await ipcRenderer.invoke('get-devices', caseId);
-        const devices = devicesResponse.data;
-        
-        const deviceIdToMapId = {};
-        devices.forEach((d, idx) => {
-          deviceIdToMapId[d.id] = idx + 1;
-        });
-        
-        setFetchedDevices(devices.map((d, idx) => ({ name: d.name, id: idx + 1 })));
+  const fetchData = async () => {
+    if (!caseId) return;
 
-        // Fetch Wi-Fi locations
-        const wifiResponse = await ipcRenderer.invoke('get-wifi-locations', caseId);
-        if (wifiResponse.success) {
-          const wifiData = wifiResponse.data.map(w => ({
-            ...w,
-            timestamp: new Date(w.timestamp),
-            deviceId: w.deviceId,
-            mapDeviceId: deviceIdToMapId[w.deviceId] ?? null,
-          }));
-          setWifiLocations(wifiData);
-        }
+    try {
+      // Fetch devices
+      const devicesResponse = await ipcRenderer.invoke('get-devices', caseId);
+      const devices = devicesResponse.data || [];
 
-        // Fetch locations, KTX files, and app usage for each device
-        const allLocations = [];
-        const allKtxFiles = [];
-        const allAppUsage = [];
+      const deviceIdToMapId = {};
+      devices.forEach((d, idx) => {
+        deviceIdToMapId[d.id] = idx + 1;
+      });
 
-        for (const device of devices) {
-          const mapId = deviceIdToMapId[device.id];
+      setFetchedDevices(devices.map((d, idx) => ({ name: d.name, id: idx + 1 })));
 
-          // Fetch locations
-          const locRes = await ipcRenderer.invoke('get-device-locations', device.id);
-          if (locRes.success) {
-            const deviceLocations = locRes.data.map((loc) => ({
-              ...loc,
-              timestamp: new Date(loc.timestamp),
-              deviceId: device.id,
-              mapDeviceId: mapId,
-            }));
-            allLocations.push(...deviceLocations);
-          }
-
-          // Fetch KTX files
-          const ktxRes = await ipcRenderer.invoke('get-ktx-files', device.id);
-          if (ktxRes.success) {
-            allKtxFiles.push(
-              ...ktxRes.data.map((f) => ({
-                ...f,
-                timestamp: new Date(f.timestamp),
-                deviceId: device.id,
-              }))
-            );
-          }
-
-          // Fetch app usage
-          const usageRes = await ipcRenderer.invoke('get-app-usage', device.id);
-          if (usageRes.success) {
-            allAppUsage.push(
-              ...usageRes.data.map((u) => ({
-                ...u,
-                startTime: new Date(u.startTime),
-                endTime: new Date(u.endTime),
-                deviceId: device.id,
-              }))
-            );
-          }
-        }
-
-        // Merge app usage into locations
-        const locationsWithAppUsage = allLocations.map(loc => ({
-          ...loc,
-          appUsage:
-            allAppUsage.find(
-              u =>
-                u.deviceId === loc.deviceId &&
-                u.startTime <= loc.timestamp &&
-                u.endTime >= loc.timestamp
-            ) || null,
+      // Fetch Wi-Fi locations
+      const wifiResponse = await ipcRenderer.invoke('get-wifi-locations', caseId);
+      if (wifiResponse.success) {
+        const wifiData = wifiResponse.data.map(w => ({
+          ...w,
+          timestamp: new Date(w.timestamp),
+          deviceId: w.deviceId,
+          mapDeviceId: deviceIdToMapId[w.deviceId] ?? null,
         }));
-
-        setLocations(allLocations);
-        setKtxFiles(allKtxFiles);
-        const matched = matchKtxToLocations(locationsWithAppUsage, allKtxFiles);
-        setMatchedLocations(matched);
-      } catch (error) {
-        console.error('Error fetching map data:', error);
+        setWifiLocations(wifiData);
+      } else {
+        setWifiLocations([]);
       }
-    };
 
+      // Fetch locations, KTX files, and app usage for each device
+      const allLocations = [];
+      const allKtxFiles = [];
+      const allAppUsage = [];
+
+      for (const device of devices) {
+        const mapId = deviceIdToMapId[device.id];
+
+        // Fetch locations
+        const locRes = await ipcRenderer.invoke('get-device-locations', device.id);
+        if (locRes.success) {
+          const deviceLocations = locRes.data.map((loc) => ({
+            ...loc,
+            timestamp: new Date(loc.timestamp),
+            deviceId: device.id,
+            mapDeviceId: mapId,
+          }));
+          allLocations.push(...deviceLocations);
+        }
+
+        // Fetch KTX files
+        const ktxRes = await ipcRenderer.invoke('get-ktx-files', device.id);
+        if (ktxRes.success) {
+          allKtxFiles.push(
+            ...ktxRes.data.map((f) => ({
+              ...f,
+              timestamp: new Date(f.timestamp),
+              deviceId: device.id,
+            }))
+          );
+        }
+
+        // Fetch app usage
+        const usageRes = await ipcRenderer.invoke('get-app-usage', device.id);
+        if (usageRes.success) {
+          allAppUsage.push(
+            ...usageRes.data.map((u) => ({
+              ...u,
+              startTime: new Date(u.startTime),
+              endTime: new Date(u.endTime),
+              deviceId: device.id,
+            }))
+          );
+        }
+      }
+
+      // Merge app usage into locations
+      const locationsWithAppUsage = allLocations.map(loc => ({
+        ...loc,
+        appUsage:
+          allAppUsage.find(
+            u =>
+              u.deviceId === loc.deviceId &&
+              u.startTime <= loc.timestamp &&
+              u.endTime >= loc.timestamp
+          ) || null,
+      }));
+
+      setLocations(allLocations);
+      setKtxFiles(allKtxFiles);
+      const matched = matchKtxToLocations(locationsWithAppUsage, allKtxFiles);
+      setMatchedLocations(matched);
+    } catch (error) {
+      console.error('Error fetching map data:', error);
+    }
+  };
+
+  // Initial load + case switch
+  useEffect(() => {
     fetchData();
   }, [caseId]);
 
-  // Separate effect to refresh devices when modal closes (after potential new device addition)
+  // Refresh all map data when modal closes (after potential new device addition)
   useEffect(() => {
-    const refreshDevices = async () => {
-      if (!isFileModalVisible) {
-        try {
-          const devicesResponse = await ipcRenderer.invoke('get-devices', caseId);
-          const devices = devicesResponse.data;
-          setFetchedDevices(devices.map((d, idx) => ({ name: d.name, id: idx + 1 })));
-        } catch (error) {
-          console.error('Error refreshing devices:', error);
-        }
-      }
-    };
+    const justClosed = wasFileModalVisibleRef.current && !isFileModalVisible;
+    wasFileModalVisibleRef.current = isFileModalVisible;
 
-    refreshDevices();
+    if (justClosed) {
+      fetchData();
+    }
   }, [isFileModalVisible, caseId]);
 
   return {
