@@ -1,6 +1,6 @@
 {
   "name": "iGem",
-  "version": "1.3.2",
+  "version": "1.3.3",
   "description": "iOS Geolocation Evidence Matching",
   "main": "./out/main/index.js",
   "author": "Akif Ozer",
